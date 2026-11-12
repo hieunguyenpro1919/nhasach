@@ -1,583 +1,452 @@
-# 🗄️ Database Architecture & Design — Nhà Sách Trí Tuệ Book
+# 🗄️ Thiết Kế Cơ Sở Dữ Liệu — Hệ Thống Nhà Sách Online (BookStore)
 
-> [!NOTE]
-> **Tài liệu đặc tả và thiết kế cơ sở dữ liệu (Database Design Document)** cho hệ thống Website Thương mại điện tử Nhà sách Trí Tuệ Book.
-> 
-> **Sinh viên thực hiện:** Nguyễn Văn Hiếu — **MSSV:** 501250367  
-> **Học phần:** Lập trình JavaScript (JavaScript Programming)  
-> **Kiến trúc:** RESTful Data Schema (`db.json` / MySQL RDBMS chuẩn 3NF)
+> **Tài liệu kỹ thuật Database Schema & Bảo mật RLS**
+> **Tác giả**: Nguyễn Văn Hiếu — MSSV: `501250367`
+> **Kiến trúc lưu trữ chính**: **Supabase PostgreSQL** (Production) kết hợp **Supabase Auth (`auth.users`)**, **Row Level Security (RLS)**, **Database Triggers**, **Security-Definer RPCs**, **Supabase Storage (`uploads`)** và **Supabase Realtime**.
+> **Môi trường Offline / Fallback**: `db.json` (`json-server`) khi chạy cục bộ không cấu hình biến môi trường Supabase.
 
 ---
 
-## 1. 🌐 Tổng Quan Kiến Trúc Dữ Liệu
+## 1. Tổng quan Kiến trúc Cơ sở dữ liệu
 
-Hệ thống cơ sở dữ liệu được thiết kế theo chuẩn hóa dữ liệu quan hệ (3NF - Third Normal Form), đảm bảo:
-- **Tính toàn vẹn dữ liệu (Data Integrity):** Ràng buộc khóa chính (PK), khóa ngoại (FK) rõ ràng giữa người dùng, sản phẩm, đơn hàng và tương tác.
-- **Tách bạch nghiệp vụ (Decoupling):** Phân chia rõ ràng giữa dữ liệu sản phẩm, đơn hàng, người dùng, tương tác xã hội (Đánh giá, Like, Reply, Chat) và khuyến mãi.
-- **Khả năng mở rộng (Scalability):** Dễ dàng chuyển đổi linh hoạt giữa cơ chế Mock REST API (`json-server`) và hệ quản trị cơ sở dữ liệu quan hệ thực tế (**MySQL / PostgreSQL trong Docker**).
+Hệ thống sử dụng **PostgreSQL trên Supabase** gồm **11 bảng nghiệp vụ** trong schema `public`, liên kết chặt chẽ với bảng hệ thống `auth.users` của Supabase Auth thông qua cột `auth_uid` trên bảng `public.app_users`.
 
-```mermaid
-flowchart TD
-    subgraph CLIENT["🖥️ Client Application (Frontend Vite)"]
-        UI["Pages: Home, Detail, Cart, Orders, Admin, Seller"]
-    end
-
-    subgraph API_GW["⚙️ API Gateway / Client Service"]
-        AXIOS["Axios Instance (src/api/client.js)"]
-    end
-
-    subgraph DATA_SCHEMA["🗄️ Database Entities (3NF Schema)"]
-        direction TB
-        USERS["👥 users\n(Tài khoản & Phân quyền)"]
-        CATEGORIES["🏷️ categories\n(Thể loại sách)"]
-        PRODUCTS["📚 products\n(Kho sách & Giá bán)"]
-        ORDERS["📦 orders\n(Đơn hàng tổng)"]
-        ORDER_ITEMS["📋 order_items\n(Chi tiết sản phẩm đơn)"]
-        REVIEWS["⭐ reviews\n(Đánh giá & Bình luận)"]
-        REPLIES["💬 review_replies\n(Trả lời lồng nhau)"]
-        WISHLIST["❤️ wishlist\n(Sách yêu thích)"]
-        COUPONS["🎟️ coupons\n(Mã voucher giảm giá)"]
-        NOTIFS["🔔 notifications\n(Thông báo đơn hàng)"]
-        CHAT["💭 chat_messages\n(Tin nhắn nội bộ)"]
-    end
-
-    UI --> AXIOS
-    AXIOS --> DATA_SCHEMA
-```
+### Điểm nổi bật của thiết kế Production
+1. **Tách biệt danh tính & hồ sơ**: `auth.users` quản lý xác thực (email, mật khẩu băm bcrypt, JWT, phiên đăng nhập, khôi phục mật khẩu qua email), còn `public.app_users` lưu hồ sơ người dùng, vai trò (`customer` / `seller` / `admin`), và thông tin cửa hàng (`shopName`, `shopStatus`).
+2. **Bảo vệ ở tầng Database (RLS + Triggers)**:
+   - Không tin tưởng dữ liệu role hay trạng thái khóa gửi từ client.
+   - Trigger `on_auth_user_created` (`handle_new_auth_user()`) tự động đồng bộ user mới vào `app_users` với role mặc định an toàn.
+   - Trigger `guard_app_user_update` chặn user tự nâng quyền (`role`) hoặc tự mở khóa (`isLocked`).
+   - Trigger `guard_order_update` kiểm soát chuyển trạng thái đơn hàng theo vai trò.
+3. **Lưu trữ tối ưu với JSONB**: `orders.items` và `reviews.likes` / `reviews.replies` dùng `JSONB` thay cho các bảng trung gian rườm rà, giúp truy vấn đơn hàng và đánh giá nhanh, đồng thời được thao tác nguyên tử (atomic) qua các hàm RPC `SECURITY DEFINER`.
 
 ---
 
-## 2. 🗺️ Sơ Đồ Quan Hệ Thực Thể Tổng Thể (Comprehensive ERD)
+## 2. Sơ đồ Thực thể Liên kết (ERD)
 
 ```mermaid
 erDiagram
-    USERS ||--o{ PRODUCTS : "đăng bán (sellerId)"
-    USERS ||--o{ ORDERS : "đặt hàng (userId)"
-    USERS ||--o{ REVIEWS : "viết nhận xét (userId)"
-    USERS ||--o{ REVIEW_REPLIES : "trả lời (userId)"
-    USERS ||--o{ WISHLIST : "thả tim (userId)"
-    USERS ||--o{ NOTIFICATIONS : "nhận (userId)"
-    USERS ||--o{ CHAT_MESSAGES : "gửi/nhận (senderId/receiverId)"
+    AUTH_USERS ||--|| APP_USERS : "auth_uid (1:1)"
+    CATEGORIES ||--o{ PRODUCTS : "categoryId (1:N)"
+    APP_USERS ||--o{ PRODUCTS : "sellerId (1:N)"
+    APP_USERS ||--o{ ORDERS : "userId (1:N)"
+    APP_USERS ||--o{ REVIEWS : "userId (1:N)"
+    PRODUCTS ||--o{ REVIEWS : "productId (1:N)"
+    APP_USERS ||--o{ WISHLIST : "userId (1:N)"
+    PRODUCTS ||--o{ WISHLIST : "productId (1:N)"
+    APP_USERS ||--o{ NOTIFICATIONS : "userId (1:N)"
+    ORDERS ||--o{ NOTIFICATIONS : "orderId (1:N)"
+    APP_USERS ||--o{ CHAT_MESSAGES : "senderId / receiverId"
 
-    CATEGORIES ||--o{ PRODUCTS : "phân loại (categoryId)"
+    AUTH_USERS {
+        uuid id PK
+        string email
+        string encrypted_password
+    }
 
-    PRODUCTS ||--o{ ORDER_ITEMS : "được mua (productId)"
-    PRODUCTS ||--o{ REVIEWS : "nhận đánh giá (productId)"
-    PRODUCTS ||--o{ WISHLIST : "được lưu (productId)"
-
-    ORDERS ||--o{ ORDER_ITEMS : "chứa các món (orderId)"
-    ORDERS ||--o{ NOTIFICATIONS : "kích hoạt khi đổi trạng thái (orderId)"
-
-    REVIEWS ||--o{ REVIEW_REPLIES : "chứa phản hồi con (reviewId)"
-
-    USERS {
-        int id PK
+    APP_USERS {
+        bigint id PK
+        uuid auth_uid UK
         string name
         string email UK
-        string password
-        string role "customer | seller | admin"
-        string avatar
+        string role
         string phone
-        string address
+        string avatar
         string shopName
+        string shopStatus
+        boolean isLocked
+        string status
+        timestamptz createdAt
     }
 
     CATEGORIES {
-        int id PK
+        bigint id PK
         string name
         string icon
     }
 
     PRODUCTS {
-        int id PK
+        bigint id PK
         string name
-        int categoryId FK
-        int price
-        int stock
+        numeric price
         string image
+        text description
         string author
-        string description
+        bigint categoryId FK
+        int stock
+        string tag
+        string importDate
         int soldCount
         boolean onSale
         int discountPercent
-        int sellerId FK
+        bigint sellerId FK
+        string sellerName
         string status
+        boolean isNew
     }
 
     ORDERS {
-        int id PK
-        string orderCode UK
-        int userId FK
+        bigint id PK
+        string orderCode
+        bigint userId FK
+        string userEmail
         string receiverName
         string receiverPhone
         string receiverAddress
-        int totalAmount
-        string paymentMethod "cod | vietqr"
-        string status "pending | confirmed | shipping | completed | cancelled"
-        string createdAt
-    }
-
-    ORDER_ITEMS {
-        int id PK
-        int orderId FK
-        int productId FK
-        string productName
-        int price
-        int quantity
+        string paymentMethod
+        string paymentStatus
+        boolean isPaid
+        string couponCode
+        numeric discountAmount
+        numeric shippingFee
+        numeric subTotal
+        numeric totalAmount
+        string status
+        jsonb items
+        timestamptz createdAt
     }
 
     REVIEWS {
-        int id PK
-        int productId FK
-        int userId FK
+        bigint id PK
+        bigint productId FK
+        bigint userId FK
         string userName
+        string userEmail
+        string orderCode
         int rating
-        string comment
-        array likes
-        string createdAt
-    }
-
-    REVIEW_REPLIES {
-        int id PK
-        int reviewId FK
-        int userId FK
-        string userName
-        string comment
-        string createdAt
-    }
-
-    WISHLIST {
-        int id PK
-        int userId FK
-        int productId FK
-        string createdAt
+        text comment
+        string type
+        boolean isVerifiedPurchase
+        jsonb likes
+        jsonb replies
+        timestamptz createdAt
     }
 
     COUPONS {
-        int id PK
+        bigint id PK
         string code UK
-        string discountType "percent | fixed"
-        int discountValue
-        int minOrderValue
-        int maxDiscount
+        string discountType
+        numeric discountValue
+        numeric maxDiscount
+        numeric minOrderValue
+        int usageLimit
+        int usedCount
         boolean active
     }
 
+    SALE_CONFIG {
+        bigint id PK
+        boolean isActive
+        string campaignName
+        string startTime
+        string endTime
+        int durationHours
+    }
+
+    WISHLIST {
+        bigint id PK
+        bigint userId FK
+        bigint productId FK
+        timestamptz createdAt
+    }
+
     NOTIFICATIONS {
-        int id PK
-        int userId FK
-        int orderId FK
-        string orderCode
+        bigint id PK
+        bigint userId FK
+        bigint orderId FK
         string title
         string message
-        string type "order_status"
-        boolean isRead
-        string createdAt
+        string type
+        boolean read
+        string link
+        timestamptz createdAt
     }
 
     CHAT_MESSAGES {
-        int id PK
-        int senderId FK
+        bigint id PK
+        bigint senderId FK
         string senderName
-        int receiverId FK
+        string senderRole
+        bigint receiverId FK
         string receiverName
-        string message
+        text message
+        timestamptz timestamp
         boolean read
-        string timestamp
+    }
+
+    MENU {
+        bigint id PK
+        string title
+        string url
+        boolean isHome
+        boolean hasDropdown
+        boolean requireAuth
     }
 ```
 
 ---
 
-## 3. 📋 Đặc Tả Chi Tiết Từng Bảng Dữ Liệu (Data Dictionary)
+## 3. Từ điển Dữ liệu Chi tiết (11 Bảng `public`)
+
+### 3.1. Bảng `public.app_users`
+Lưu hồ sơ người dùng, phân quyền và thông tin cửa hàng của Seller.
+
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY` | Mã định danh nội bộ của người dùng |
+| `auth_uid` | `UUID` | `UNIQUE REFERENCES auth.users(id)` | Liên kết 1-1 với tài khoản Supabase Auth |
+| `name` | `TEXT` | `NOT NULL` | Họ tên hiển thị |
+| `email` | `TEXT` | `UNIQUE NOT NULL` | Email đăng nhập |
+| `password_hash` | `TEXT` | `Nullable` | Trường tương thích cũ (Supabase Auth giữ mật khẩu thật) |
+| `role` | `TEXT` | `DEFAULT 'customer'` | `customer` \| `seller` \| `admin` |
+| `phone` | `TEXT` | `Nullable` | Số điện thoại liên hệ |
+| `gender` | `TEXT` | `Nullable` | Giới tính |
+| `dob` | `TEXT` | `Nullable` | Ngày sinh |
+| `address` | `TEXT` | `Nullable` | Địa chỉ giao hàng mặc định |
+| `bio` | `TEXT` | `Nullable` | Giới thiệu bản thân |
+| `avatar` | `TEXT` | `Nullable` | URL ảnh đại diện (Supabase Storage CDN) |
+| `shopName` | `TEXT` | `Nullable` | Tên cửa hàng (dành cho `seller`) |
+| `shopDescription` | `TEXT` | `Nullable` | Mô tả cửa hàng |
+| `shopPhone` | `TEXT` | `Nullable` | Hotline cửa hàng |
+| `shopAddress` | `TEXT` | `Nullable` | Địa chỉ kho/cửa hàng |
+| `shopBio` | `TEXT` | `Nullable` | Tiểu sử gian hàng |
+| `isLocked` | `BOOLEAN` | `DEFAULT false` | Cờ khóa tài khoản bởi Admin |
+| `status` | `TEXT` | `DEFAULT 'active'` | Trạng thái hoạt động tài khoản |
+| `shopStatus` | `TEXT` | `DEFAULT 'active'` | Trạng thái duyệt/hoạt động của shop |
+| `createdAt` | `TIMESTAMPTZ` | `DEFAULT now()` | Thời điểm tạo hồ sơ |
 
 ---
 
-### 3.1. Bảng `users` (Tài khoản người dùng & Phân quyền)
-Lưu trữ thông tin người mua, chủ gian hàng và quản trị viên toàn sàn.
+### 3.2. Bảng `public.categories`
+Danh mục phân loại sách hiển thị trên menu và bộ lọc trang chủ.
 
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã định danh người dùng duy nhất |
-| **`name`** | `VARCHAR(100)` | NOT NULL | Họ và tên hiển thị của người dùng |
-| **`email`** | `VARCHAR(150)` | **UNIQUE**, NOT NULL | Email tài khoản dùng để đăng nhập và nhận OTP |
-| **`password`** | `VARCHAR(255)` | NOT NULL | Mật khẩu tài khoản (mã hóa hoặc chuỗi hash) |
-| **`role`** | `VARCHAR(20)` | DEFAULT `'customer'` | Vai trò: `customer` (Khách), `seller` (Người bán), `admin` (Quản trị) |
-| **`avatar`** | `TEXT / LONGTEXT`| NULLABLE | URL ảnh hoặc chuỗi ảnh Base64 đại diện |
-| **`phone`** | `VARCHAR(20)` | NULLABLE | Số điện thoại nhận hàng / liên hệ |
-| **`address`** | `VARCHAR(255)` | NULLABLE | Địa chỉ giao hàng mặc định |
-| **`shopName`** | `VARCHAR(150)` | NULLABLE | Tên gian hàng đối tác (dành riêng cho vai trò `seller`) |
-| **`createdAt`** | `DATETIME / ISO`| DEFAULT `NOW()` | Thời gian đăng ký tài khoản |
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | Mã danh mục |
+| `name` | `TEXT` | `NOT NULL` | Tên danh mục (Văn học, Kinh tế, Kỹ năng sống...) |
+| `icon` | `TEXT` | `Nullable` | Icon biểu tượng hiển thị |
 
 ---
 
-### 3.2. Bảng `categories` (Danh mục thể loại sách)
-Phân loại các đầu sách theo từng chủ đề.
+### 3.3. Bảng `public.products`
+Kho sách kinh doanh trên hệ thống (hỗ trợ cả sách hệ thống và sách do Seller đăng bán).
 
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã định danh thể loại sách |
-| **`name`** | `VARCHAR(100)` | NOT NULL | Tên thể loại (Văn học, Kinh tế, CNTT, Tâm lý...) |
-| **`icon`** | `VARCHAR(10)` | NULLABLE | Biểu tượng icon hiển thị (📖, 💼, 💻, 🧠...) |
-
----
-
-### 3.3. Bảng `products` (Kho sách & Thông tin bán hàng)
-Lưu trữ toàn bộ danh mục sách, giá bán, tồn kho và người bán chịu trách nhiệm.
-
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã định danh cuốn sách |
-| **`name`** | `VARCHAR(255)` | NOT NULL | Tiêu đề tên cuốn sách |
-| **`categoryId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `categories(id)` | Khóa ngoại trỏ đến danh mục thể loại |
-| **`price`** | `INT / BIGINT` | NOT NULL, CHECK $\ge 0$ | Giá bán hiện tại (VNĐ) |
-| **`stock`** | `INT` | NOT NULL, DEFAULT 0 | Số lượng tồn kho sẵn sàng bán |
-| **`image`** | `TEXT` | NOT NULL | Đường dẫn ảnh bìa sách (`/src/assets/...` hoặc URL) |
-| **`author`** | `VARCHAR(150)` | NOT NULL | Tên tác giả hoặc dịch giả |
-| **`description`** | `TEXT` | NULLABLE | Tóm tắt nội dung, giới thiệu tác phẩm |
-| **`soldCount`** | `INT` | DEFAULT 0 | Tổng số lượng cuốn sách đã bán thành công |
-| **`tag`** | `VARCHAR(50)` | NULLABLE | Nhãn tiếp thị đặc biệt (`HOT`, `NEW`, `BESTSELLER`) |
-| **`importDate`** | `VARCHAR(30)` | NULLABLE | Ngày nhập kho để phân loại sách mới nhập |
-| **`onSale`** | `BOOLEAN` | DEFAULT `false` | Cờ bật/tắt chiến dịch giảm giá cho sách này |
-| **`discountPercent`**| `INT` | DEFAULT 0, (0 - 90%) | Tỷ lệ phần trăm giảm giá khi tham gia Flash Sale |
-| **`sellerId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `users(id)` | Mã người bán / gian hàng sở hữu cuốn sách |
-| **`sellerName`** | `VARCHAR(150)` | NULLABLE | Tên hiển thị của gian hàng người bán |
-| **`status`** | `VARCHAR(30)` | DEFAULT `'active'` | Trạng thái: `active` (Đang bán), `hidden` (Tạm ẩn) |
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | Mã sản phẩm |
+| `name` | `TEXT` | `NOT NULL` | Tên sách |
+| `price` | `NUMERIC` | `NOT NULL` | Giá bán niêm yết (VNĐ) |
+| `image` | `TEXT` | `Nullable` | URL ảnh bìa (Storage CDN hoặc asset URL) |
+| `description` | `TEXT` | `Nullable` | Mô tả chi tiết nội dung sách |
+| `author` | `TEXT` | `Nullable` | Tên tác giả |
+| `categoryId` | `BIGINT` | `REFERENCES categories(id)` | Mã danh mục |
+| `stock` | `INTEGER` | `DEFAULT 0` | Số lượng tồn kho (trừ tự động qua RPC `place_order`) |
+| `tag` | `TEXT` | `Nullable` | Nhãn nổi bật (`Hot`, `Bestseller`...) |
+| `importDate` | `TEXT` | `Nullable` | Ngày nhập kho |
+| `soldCount` | `INTEGER` | `DEFAULT 0` | Tổng số lượng đã bán |
+| `onSale` | `BOOLEAN` | `DEFAULT false` | Cờ tham gia Flash Sale |
+| `discountPercent` | `INTEGER` | `DEFAULT 0` | Phần trăm giảm giá (`0 - 100`) |
+| `sellerId` | `BIGINT` | `Nullable` | ID người bán (`app_users.id`) |
+| `sellerName` | `TEXT` | `Nullable` | Tên gian hàng/người bán |
+| `status` | `TEXT` | `DEFAULT 'approved'` | Trạng thái kiểm duyệt (`approved`, `pending`, `rejected`) |
+| `isNew` | `BOOLEAN` | `DEFAULT false` | Cờ đánh dấu sách mới phát hành |
 
 ---
 
-### 3.4. Bảng `orders` (Đơn hàng mua sách)
-Lưu thông tin hóa đơn tổng, người nhận, trạng thái giao vận và phương thức thanh toán.
+### 3.4. Bảng `public.sale_config`
+Cấu hình chiến dịch Flash Sale toàn sàn do Admin điều khiển.
 
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | ID tự tăng của đơn hàng |
-| **`orderCode`** | `VARCHAR(50)` | **UNIQUE**, NOT NULL | Mã tra cứu đơn hàng duy nhất (Ví dụ: `TB-1730761234`) |
-| **`userId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `users(id)` | Mã tài khoản khách hàng đặt đơn |
-| **`userEmail`** | `VARCHAR(150)` | NOT NULL | Email khách hàng để gửi thông báo/hóa đơn |
-| **`receiverName`** | `VARCHAR(100)` | NOT NULL | Họ và tên người nhận hàng |
-| **`receiverPhone`** | `VARCHAR(20)` | NOT NULL | Số điện thoại nhận hàng |
-| **`receiverAddress`**| `VARCHAR(255)`| NOT NULL | Địa chỉ chi tiết nhận hàng |
-| **`receiverNote`** | `TEXT` | NULLABLE | Ghi chú dặn dò shipper |
-| **`subTotal`** | `INT / BIGINT` | NOT NULL | Tổng tiền sách trước khi áp dụng voucher & ship |
-| **`shippingFee`** | `INT` | DEFAULT 0 | Phí vận chuyển (Freeship nếu $\ge 250.000$đ) |
-| **`totalAmount`** | `INT / BIGINT` | NOT NULL | Tổng số tiền thanh toán cuối cùng |
-| **`paymentMethod`** | `VARCHAR(30)` | DEFAULT `'cod'` | Hình thức: `cod` (Tiền mặt khi nhận), `vietqr` (Chuyển khoản) |
-| **`status`** | `VARCHAR(30)` | DEFAULT `'pending'` | Trạng thái: `pending` (Chờ duyệt), `confirmed` (Đã xác nhận), `shipping` (Đang giao), `completed` (Hoàn tất), `cancelled` (Đã hủy) |
-| **`createdAt`** | `DATETIME / ISO`| DEFAULT `NOW()` | Thời gian tạo đơn hàng |
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | Mã cấu hình |
+| `isActive` | `BOOLEAN` | `DEFAULT false` | Bật/tắt Flash Sale |
+| `campaignName` | `TEXT` | `Nullable` | Tên chiến dịch khuyến mãi |
+| `startTime` | `TEXT` | `Nullable` | Giờ bắt đầu |
+| `endTime` | `TEXT` | `Nullable` | Giờ kết thúc |
+| `startDate` | `TEXT` | `Nullable` | Ngày bắt đầu |
+| `endDate` | `TEXT` | `Nullable` | Ngày kết thúc |
+| `durationHours` | `INTEGER` | `Nullable` | Thời lượng chiến dịch (giờ) |
+| `description` | `TEXT` | `Nullable` | Mô tả ngắn |
 
 ---
 
-### 3.5. Bảng `order_items` (Chi tiết từng cuốn sách trong đơn)
-Lưu chi tiết các đầu sách kèm giá tại thời điểm chốt đơn (tránh ảnh hưởng khi giá sách gốc thay đổi).
+### 3.5. Bảng `public.coupons`
+Quản lý mã giảm giá / voucher áp dụng tại bước thanh toán.
 
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã dòng chi tiết đơn hàng |
-| **`orderId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `orders(id)` | Khóa ngoại trỏ đến đơn hàng cha |
-| **`productId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `products(id)` | Khóa ngoại trỏ đến cuốn sách đã mua |
-| **`productName`** | `VARCHAR(255)` | NOT NULL | Tên sách tại thời điểm đặt hàng |
-| **`price`** | `INT / BIGINT` | NOT NULL | Đơn giá tại thời điểm đặt |
-| **`quantity`** | `INT` | NOT NULL, CHECK $> 0$ | Số lượng sách mua |
-
----
-
-### 3.6. Bảng `reviews` (Đánh giá & Bình luận sản phẩm)
-Lưu nhận xét, số sao chấm và danh sách người thích bình luận.
-
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã nhận xét đánh giá |
-| **`productId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `products(id)` | Cuốn sách được nhận xét |
-| **`userId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `users(id)` | Người viết nhận xét |
-| **`userName`** | `VARCHAR(100)` | NOT NULL | Tên hiển thị người đánh giá |
-| **`rating`** | `INT` | NOT NULL, CHECK (1 - 5) | Số sao đánh giá từ 1 đến 5 sao |
-| **`comment`** | `TEXT` | NOT NULL | Nội dung nhận xét bằng lời |
-| **`likes`** | `JSON / ARRAY` | DEFAULT `[]` | Mảng chứa danh sách `userId` của những người đã bấm thích |
-| **`createdAt`** | `DATETIME / ISO`| DEFAULT `NOW()` | Thời gian gửi nhận xét |
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | Mã voucher |
+| `code` | `TEXT` | `UNIQUE NOT NULL` | Mã nhập khi checkout (VD: `WELCOME10`) |
+| `description` | `TEXT` | `Nullable` | Mô tả điều kiện áp dụng |
+| `discountType` | `TEXT` | `NOT NULL` | `percent` (theo %) hoặc `fixed` (số tiền cố định) |
+| `discountValue` | `NUMERIC` | `NOT NULL` | Giá trị giảm |
+| `maxDiscount` | `NUMERIC` | `Nullable` | Mức giảm tối đa (nếu giảm theo %) |
+| `minOrderValue` | `NUMERIC` | `DEFAULT 0` | Giá trị đơn hàng tối thiểu |
+| `usageLimit` | `INTEGER` | `Nullable` | Số lượt dùng tối đa toàn hệ thống |
+| `usedCount` | `INTEGER` | `DEFAULT 0` | Số lượt đã sử dụng (tăng qua RPC `place_order`) |
+| `startsAt` | `TEXT` | `Nullable` | Thời gian bắt đầu hiệu lực |
+| `expiresAt` | `TEXT` | `Nullable` | Thời gian hết hạn |
+| `active` | `BOOLEAN` | `DEFAULT true` | Trạng thái kích hoạt |
+| `createdAt` | `TIMESTAMPTZ` | `DEFAULT now()` | Ngày tạo |
 
 ---
 
-### 3.7. Bảng `review_replies` (Câu trả lời phản hồi lồng nhau)
-Lưu các phản hồi con trực thuộc một bình luận cha.
+### 3.6. Bảng `public.orders`
+Lưu thông tin đơn hàng và danh sách sản phẩm mua dưới dạng `JSONB`.
 
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã câu trả lời phản hồi |
-| **`reviewId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `reviews(id)` | Khóa ngoại trỏ đến bình luận cha |
-| **`userId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `users(id)` | Người gửi câu trả lời |
-| **`userName`** | `VARCHAR(100)` | NOT NULL | Tên hiển thị người trả lời |
-| **`comment`** | `TEXT` | NOT NULL | Nội dung câu trả lời |
-| **`createdAt`** | `DATETIME / ISO`| DEFAULT `NOW()` | Thời gian gửi phản hồi |
-
----
-
-### 3.8. Bảng `wishlist` (Danh sách sách yêu thích)
-Lưu trữ các cuốn sách được người dùng thả tim lưu lại.
-
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã mục yêu thích |
-| **`userId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `users(id)` | Người dùng yêu thích |
-| **`productId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `products(id)` | Cuốn sách được yêu thích |
-| **`createdAt`** | `DATETIME / ISO`| DEFAULT `NOW()` | Thời gian thêm vào yêu thích |
-
----
-
-### 3.9. Bảng `coupons` (Mã giảm giá & Khuyến mãi)
-Quản lý các voucher giảm giá được áp dụng tại giỏ hàng.
-
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã voucher |
-| **`code`** | `VARCHAR(50)` | **UNIQUE**, NOT NULL | Mã nhập (Ví dụ: `TRIUE10`, `FREESHIP`) |
-| **`description`** | `VARCHAR(255)` | NOT NULL | Mô tả ưu đãi hiển thị cho khách |
-| **`discountType`** | `VARCHAR(20)` | NOT NULL | Loại chiết khấu: `percent` (theo %) hoặc `fixed` (số tiền cố định) |
-| **`discountValue`**| `INT` | NOT NULL | Giá trị giảm (Ví dụ: 10% hoặc 50.000đ) |
-| **`minOrderValue`**| `INT` | DEFAULT 0 | Giá trị đơn hàng tối thiểu để được áp dụng mã |
-| **`maxDiscount`** | `INT` | NULLABLE | Số tiền giảm tối đa (nếu giảm theo %) |
-| **`active`** | `BOOLEAN` | DEFAULT `true` | Trạng thái kích hoạt mã voucher |
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | ID đơn hàng |
+| `orderCode` | `TEXT` | `NOT NULL` | Mã đơn hàng tra cứu (VD: `ORD-...`) |
+| `userId` | `BIGINT` | `Nullable` | ID người mua (`NULL` nếu khách vãng lai) |
+| `userEmail` | `TEXT` | `Nullable` | Email nhận thông báo đơn |
+| `receiverName` | `TEXT` | `NOT NULL` | Tên người nhận |
+| `receiverPhone` | `TEXT` | `NOT NULL` | Số điện thoại người nhận |
+| `receiverAddress` | `TEXT` | `NOT NULL` | Địa chỉ giao hàng |
+| `receiverNote` | `TEXT` | `Nullable` | Ghi chú đơn hàng |
+| `paymentMethod` | `TEXT` | `DEFAULT 'cod'` | `cod` hoặc `vietqr` (Demo Sandbox) |
+| `paymentStatus` | `TEXT` | `DEFAULT 'unpaid'` | Trạng thái thanh toán (`unpaid`, `pending`, `paid`) |
+| `isPaid` | `BOOLEAN` | `DEFAULT false` | Cờ đã thanh toán |
+| `couponCode` | `TEXT` | `Nullable` | Mã giảm giá đã áp dụng |
+| `discountAmount` | `NUMERIC` | `DEFAULT 0` | Số tiền được giảm |
+| `shippingFee` | `NUMERIC` | `DEFAULT 0` | Phí vận chuyển |
+| `subTotal` | `NUMERIC` | `DEFAULT 0` | Tạm tính trước giảm giá |
+| `totalAmount` | `NUMERIC` | `NOT NULL` | Tổng tiền thanh toán cuối |
+| `status` | `TEXT` | `DEFAULT 'pending'` | `pending` \| `confirmed` \| `shipping` \| `completed` \| `cancelled` |
+| `items` | `JSONB` | `DEFAULT '[]'::jsonb` | Mảng các sản phẩm (`productId`, `name`, `price`, `quantity`, `image`, `sellerId`) |
+| `createdAt` | `TIMESTAMPTZ` | `DEFAULT now()` | Thời gian đặt hàng |
 
 ---
 
-### 3.10. Bảng `notifications` (Chuông thông báo đơn hàng)
-Lưu trữ các thông báo khi có sự thay đổi trạng thái đơn hàng.
+### 3.7. Bảng `public.reviews`
+Lưu đánh giá sao, bình luận, lượt thích (`likes` JSONB) và phản hồi lồng nhau (`replies` JSONB).
 
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã thông báo |
-| **`userId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `users(id)` | Người nhận thông báo |
-| **`orderId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `orders(id)` | Đơn hàng phát sinh biến động |
-| **`orderCode`** | `VARCHAR(50)` | NOT NULL | Mã đơn hàng đính kèm |
-| **`title`** | `VARCHAR(150)` | NOT NULL | Tiêu đề thông báo ngắn |
-| **`message`** | `TEXT` | NOT NULL | Nội dung chi tiết thông báo |
-| **`type`** | `VARCHAR(50)` | DEFAULT `'order_status'` | Loại thông báo |
-| **`isRead`** | `BOOLEAN` | DEFAULT `false` | Trạng thái: `true` (Đã đọc), `false` (Chưa đọc) |
-| **`createdAt`** | `DATETIME / ISO`| DEFAULT `NOW()` | Thời gian phát thông báo |
-
----
-
-### 3.11. Bảng `chat_messages` (Tin nhắn nội bộ giữa các thành viên)
-Lưu trữ lịch sử đối thoại giữa khách hàng với các gian hàng hoặc ban quản trị.
-
-| Tên trường (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả chi tiết |
-|:---|:---:|:---:|:---|
-| **`id`** | `INT / NUMBER` | **PRIMARY KEY**, Auto-increment | Mã tin nhắn |
-| **`senderId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `users(id)` | Người gửi tin nhắn |
-| **`senderName`** | `VARCHAR(100)` | NOT NULL | Tên người gửi |
-| **`receiverId`** | `INT / NUMBER` | **FOREIGN KEY** $\rightarrow$ `users(id)` | Người nhận tin nhắn |
-| **`receiverName`** | `VARCHAR(100)` | NOT NULL | Tên người nhận |
-| **`message`** | `TEXT` | NOT NULL | Nội dung tin nhắn trao đổi |
-| **`read`** | `BOOLEAN` | DEFAULT `false` | Trạng thái đối phương đã đọc hay chưa |
-| **`timestamp`** | `DATETIME / ISO`| DEFAULT `NOW()` | Thời gian gửi tin nhắn |
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | ID đánh giá |
+| `productId` | `BIGINT` | `NOT NULL` | ID sách được đánh giá |
+| `userId` | `BIGINT` | `Nullable` | ID người viết đánh giá |
+| `userName` | `TEXT` | `NOT NULL` | Tên người đánh giá |
+| `userEmail` | `TEXT` | `Nullable` | Email người đánh giá |
+| `orderCode` | `TEXT` | `Nullable` | Mã đơn hàng đối chiếu xác thực đã mua |
+| `rating` | `INTEGER` | `Nullable` | Số sao (`1..5`, `NULL` nếu là bình luận hỏi đáp) |
+| `comment` | `TEXT` | `NOT NULL` | Nội dung đánh giá / bình luận |
+| `type` | `TEXT` | `DEFAULT 'comment'` | `review` (có chấm sao) hoặc `comment` |
+| `isVerifiedPurchase` | `BOOLEAN` | `DEFAULT false` | Cờ xác nhận đã mua hàng (`true` nếu có đơn hợp lệ) |
+| `likes` | `JSONB` | `DEFAULT '[]'::jsonb` | Mảng `userId` đã bấm Thích (cập nhật qua RPC `toggle_review_like`) |
+| `replies` | `JSONB` | `DEFAULT '[]'::jsonb` | Mảng object phản hồi (`id`, `userId`, `userName`, `userRole`, `comment`, `createdAt`) |
+| `createdAt` | `TIMESTAMPTZ` | `DEFAULT now()` | Thời gian tạo |
 
 ---
 
-## 4. 🔗 Quy Tắc Toàn Vẹn & Ràng Buộc Dữ Liệu
+### 3.8. Bảng `public.wishlist`
+Lưu danh sách sách yêu thích của từng tài khoản.
 
-1. **Khóa chính & Khóa ngoại (Referential Integrity):**
-   - Khi xóa một Danh mục (`categories`), hệ thống chặn hành động (`RESTRICT`) nếu danh mục đó vẫn còn chứa sách trong `products`.
-   - Khi xóa một cuốn Sách (`products`), các đánh giá (`reviews`), yêu thích (`wishlist`) liên quan sẽ được tự động xóa theo chuỗi liên đới (`ON DELETE CASCADE`).
-   - Khi xóa một Bình luận (`reviews`), tất cả các câu trả lời con (`review_replies`) thuộc bình luận đó sẽ tự động bị xóa đồng thời.
-2. **Kiểm tra nghiệp vụ (Check Constraints):**
-   - Đơn giá sách `products.price >= 0`.
-   - Số lượng tồn kho `products.stock >= 0`.
-   - Số sao đánh giá `reviews.rating BETWEEN 1 AND 5`.
-   - Mã voucher `coupons.code` và email người dùng `users.email` không được phép trùng lặp (`UNIQUE`).
-
----
-
-## 5. ⚡ Chiến Lược Đánh Chỉ Mục Tối Ưu (Indexing Strategy)
-
-Để đảm bảo các thao tác tìm kiếm, lọc sách và tải trang có tốc độ phản hồi tức thì dưới **50ms**:
-
-```sql
--- Tối ưu tìm kiếm sách theo tên, tác giả và danh mục
-CREATE INDEX idx_products_search ON products(name, author);
-CREATE INDEX idx_products_category ON products(categoryId);
-CREATE INDEX idx_products_seller ON products(sellerId);
-
--- Tối ưu truy vấn lịch sử đơn hàng của người dùng
-CREATE INDEX idx_orders_user ON orders(userId);
-CREATE INDEX idx_orders_status ON orders(status);
-CREATE INDEX idx_order_items_order ON order_items(orderId);
-
--- Tối ưu tải danh sách bình luận theo sản phẩm
-CREATE INDEX idx_reviews_product ON reviews(productId);
-CREATE INDEX idx_review_replies_review ON review_replies(reviewId);
-
--- Tối ưu chuông thông báo và tin nhắn chưa đọc
-CREATE INDEX idx_notifications_user_unread ON notifications(userId, isRead);
-CREATE INDEX idx_chat_conversation ON chat_messages(senderId, receiverId);
-```
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | ID bản ghi |
+| `userId` | `BIGINT` | `NOT NULL` | ID người dùng |
+| `productId` | `BIGINT` | `NOT NULL` | ID sách yêu thích |
+| `createdAt` | `TIMESTAMPTZ` | `DEFAULT now()` | Ngày thêm |
+| *(Constraint)* | `UNIQUE` | `("userId", "productId")` | Chống lưu trùng một sách nhiều lần |
 
 ---
 
-## 6. 📜 Kịch Bản DDL Tạo Bảng Khởi Tạo Chuẩn (SQL DDL Migration Script)
+### 3.9. Bảng `public.notifications`
+Thông báo đơn hàng, cập nhật hệ thống (kích hoạt Supabase Realtime).
 
-Dành cho kịch bản triển khai lên cơ sở dữ liệu **MySQL 8.0 trong Docker**:
-
-```sql
--- 1. Tạo Database
-CREATE DATABASE IF NOT EXISTS nhasach CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE nhasach;
-
--- 2. Bảng users
-CREATE TABLE users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    email VARCHAR(150) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    role ENUM('customer', 'seller', 'admin') DEFAULT 'customer',
-    avatar LONGTEXT,
-    phone VARCHAR(20),
-    address VARCHAR(255),
-    shopName VARCHAR(150),
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
--- 3. Bảng categories
-CREATE TABLE categories (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    icon VARCHAR(10)
-);
-
--- 4. Bảng products
-CREATE TABLE products (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    categoryId INT NOT NULL,
-    price BIGINT NOT NULL,
-    stock INT NOT NULL DEFAULT 0,
-    image TEXT NOT NULL,
-    author VARCHAR(150) NOT NULL,
-    description TEXT,
-    soldCount INT DEFAULT 0,
-    tag VARCHAR(50),
-    importDate VARCHAR(30),
-    onSale BOOLEAN DEFAULT FALSE,
-    discountPercent INT DEFAULT 0,
-    sellerId INT,
-    sellerName VARCHAR(150),
-    status VARCHAR(30) DEFAULT 'active',
-    FOREIGN KEY (categoryId) REFERENCES categories(id) ON DELETE RESTRICT,
-    FOREIGN KEY (sellerId) REFERENCES users(id) ON DELETE SET NULL
-);
-
--- 5. Bảng orders & order_items
-CREATE TABLE orders (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    orderCode VARCHAR(50) NOT NULL UNIQUE,
-    userId INT NOT NULL,
-    userEmail VARCHAR(150) NOT NULL,
-    receiverName VARCHAR(100) NOT NULL,
-    receiverPhone VARCHAR(20) NOT NULL,
-    receiverAddress VARCHAR(255) NOT NULL,
-    receiverNote TEXT,
-    subTotal BIGINT NOT NULL,
-    shippingFee INT DEFAULT 0,
-    totalAmount BIGINT NOT NULL,
-    paymentMethod VARCHAR(30) DEFAULT 'cod',
-    status VARCHAR(30) DEFAULT 'pending',
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE TABLE order_items (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    orderId INT NOT NULL,
-    productId INT NOT NULL,
-    productName VARCHAR(255) NOT NULL,
-    price BIGINT NOT NULL,
-    quantity INT NOT NULL,
-    FOREIGN KEY (orderId) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE
-);
-
--- 6. Bảng reviews & review_replies
-CREATE TABLE reviews (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    productId INT NOT NULL,
-    userId INT NOT NULL,
-    userName VARCHAR(100) NOT NULL,
-    rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
-    comment TEXT NOT NULL,
-    likes JSON,
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE TABLE review_replies (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    reviewId INT NOT NULL,
-    userId INT NOT NULL,
-    userName VARCHAR(100) NOT NULL,
-    comment TEXT NOT NULL,
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (reviewId) REFERENCES reviews(id) ON DELETE CASCADE,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-);
-
--- 7. Bảng wishlist
-CREATE TABLE wishlist (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    userId INT NOT NULL,
-    productId INT NOT NULL,
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_wishlist (userId, productId),
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE
-);
-
--- 8. Bảng coupons
-CREATE TABLE coupons (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    code VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(255) NOT NULL,
-    discountType ENUM('percent', 'fixed') NOT NULL,
-    discountValue INT NOT NULL,
-    minOrderValue INT DEFAULT 0,
-    maxDiscount INT,
-    active BOOLEAN DEFAULT TRUE
-);
-
--- 9. Bảng notifications
-CREATE TABLE notifications (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    userId INT NOT NULL,
-    orderId INT,
-    orderCode VARCHAR(50) NOT NULL,
-    title VARCHAR(150) NOT NULL,
-    message TEXT NOT NULL,
-    type VARCHAR(50) DEFAULT 'order_status',
-    isRead BOOLEAN DEFAULT FALSE,
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-);
-
--- 10. Bảng chat_messages
-CREATE TABLE chat_messages (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    senderId INT NOT NULL,
-    senderName VARCHAR(100) NOT NULL,
-    receiverId INT NOT NULL,
-    receiverName VARCHAR(100) NOT NULL,
-    message TEXT NOT NULL,
-    `read` BOOLEAN DEFAULT FALSE,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (senderId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (receiverId) REFERENCES users(id) ON DELETE CASCADE
-);
-```
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | ID thông báo |
+| `userId` | `BIGINT` | `NOT NULL` | ID người nhận |
+| `orderId` | `BIGINT` | `Nullable` | ID đơn hàng liên quan |
+| `title` | `TEXT` | `NOT NULL` | Tiêu đề thông báo |
+| `message` | `TEXT` | `NOT NULL` | Nội dung chi tiết |
+| `type` | `TEXT` | `DEFAULT 'info'` | Loại thông báo (`order`, `system`, `promo`) |
+| `read` | `BOOLEAN` | `DEFAULT false` | Đã đọc hay chưa |
+| `link` | `TEXT` | `Nullable` | Đường dẫn điều hướng khi click |
+| `createdAt` | `TIMESTAMPTZ` | `DEFAULT now()` | Thời điểm phát sinh |
 
 ---
 
-## 7. 🎯 Kết Luận
+### 3.10. Bảng `public.chat_messages`
+Tin nhắn nội bộ trực tuyến giữa Customer — Seller — Admin (kích hoạt Supabase Realtime).
 
-Tài liệu thiết kế cơ sở dữ liệu trên:
-- Phản ánh **100% dữ liệu thực tế** đang vận hành mượt mà trên hệ thống `nhasach`.
-- Tuân thủ nghiêm ngặt **chuẩn hóa quan hệ 3NF**, loại bỏ hoàn toàn dư thừa dữ liệu.
-- Sẵn sàng dùng làm báo cáo cơ sở dữ liệu chuyên nghiệp để CEO Hiếu tự tin thuyết trình hoặc nộp kèm hồ sơ đồ án cho Giảng viên!
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | ID tin nhắn |
+| `senderId` | `BIGINT` | `NOT NULL` | ID người gửi |
+| `senderName` | `TEXT` | `Nullable` | Tên người gửi |
+| `senderRole` | `TEXT` | `Nullable` | Vai trò người gửi |
+| `senderAvatar` | `TEXT` | `Nullable` | Ảnh đại diện người gửi |
+| `receiverId` | `BIGINT` | `NOT NULL` | ID người nhận |
+| `receiverName` | `TEXT` | `Nullable` | Tên người nhận |
+| `message` | `TEXT` | `NOT NULL` | Nội dung tin nhắn |
+| `timestamp` | `TIMESTAMPTZ` | `DEFAULT now()` | Thời điểm gửi |
+| `read` | `BOOLEAN` | `DEFAULT false` | Trạng thái đã xem |
 
+---
+
+### 3.11. Bảng `public.menu`
+Cấu hình thanh điều hướng chính của giao diện cửa hàng.
+
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGINT` | `PRIMARY KEY` | ID mục menu |
+| `title` | `TEXT` | `NOT NULL` | Nhãn hiển thị |
+| `url` | `TEXT` | `NOT NULL` | Đường dẫn đích |
+| `isHome` | `BOOLEAN` | `DEFAULT false` | Đánh dấu trang chủ |
+| `hasDropdown` | `BOOLEAN` | `DEFAULT false` | Có menu con danh mục |
+| `requireAuth` | `BOOLEAN` | `DEFAULT false` | Yêu cầu đăng nhập khi truy cập |
+
+---
+
+## 4. Hàm Hỗ trợ, Triggers & RPC Security-Definer
+
+Toàn bộ phần logic nhạy cảm được thực thi ngay trong PostgreSQL tại [`supabase/schema.sql`](../supabase/schema.sql) và [`supabase/migration_real_auth.sql`](../supabase/migration_real_auth.sql):
+
+### 4.1. Hàm định danh & phân quyền RLS
+- `current_app_user_id()`: Tra cứu `app_users.id` từ `auth.uid()` trong JWT hiện tại.
+- `current_app_role()`: Trả về vai trò (`customer` / `seller` / `admin`) của người dùng đang đăng nhập.
+- `is_admin()`, `is_seller()`: Kiểm tra nhanh quyền ở tầng RLS policy.
+- `sync_table_sequences()`: Đồng bộ `SERIAL/IDENTITY` sequence sau khi seed dữ liệu mẫu.
+
+### 4.2. Database Triggers
+- `on_auth_user_created` → `handle_new_auth_user()`: Tự động tạo bản ghi trong `public.app_users` khi đăng ký qua Supabase Auth, gán mặc định `role = 'customer'` (chống leo thang đặc quyền).
+- `trg_guard_app_user_update` → `guard_app_user_update()`: Ngăn người dùng thường tự sửa cột `role`, `isLocked`, `status`, `shopStatus`, `auth_uid`. Chỉ Admin mới có quyền thay đổi các trường này.
+- `trg_guard_order_update` → `guard_order_update()`: Kiểm soát quyền cập nhật đơn hàng theo vai trò (Customer chỉ được hủy đơn khi còn ở trạng thái cho phép; Admin/Seller cập nhật tiến trình giao hàng).
+
+### 4.3. Các hàm RPC (`SECURITY DEFINER`)
+| Tên RPC | Tham số | Chức năng & Cơ chế bảo vệ |
+| :--- | :--- | :--- |
+| `place_order(p_order JSONB)` | Thông tin đơn & `items` | Chạy trong transaction duy nhất: kiểm tra & áp dụng `coupons` (tăng `usedCount`), kiểm tra & trừ `products.stock`, tăng `products.soldCount`, lưu `orders` và trả về đơn hàng hoàn chỉnh. |
+| `toggle_review_like(p_review_id BIGINT)` | ID đánh giá | Xác định `current_app_user_id()`, thêm/xóa ID khỏi mảng `reviews.likes` JSONB mà không cần mở quyền `UPDATE` toàn bảng `reviews`. |
+| `add_review_reply(p_review_id BIGINT, p_comment TEXT)` | ID đánh giá, nội dung | Gắn thông tin người trả lời lấy trực tiếp từ `app_users` (kèm role xác thực) vào mảng `reviews.replies` JSONB. |
+| `get_chat_contacts()` | *(không)* | Trả về danh sách liên hệ hợp lệ (`id`, `name`, `role`, `avatar`, `shopName`) cho hộp chat mà không làm lộ email, số điện thoại hay bảng `app_users` ra public. |
+| `lookup_guest_order(p_order_code TEXT, p_phone TEXT)` | Mã đơn, SĐT | Cho phép khách vãng lai (chưa đăng nhập) tra cứu đúng 1 đơn hàng khi khớp đồng thời `orderCode` và `receiverPhone`. |
+
+---
+
+## 5. Chính sách Row Level Security (RLS), Storage & Realtime
+
+### 5.1. Ma trận Bảo mật RLS tóm tắt
+- **Công khai đọc (`SELECT` cho `anon` & `authenticated`)**: `categories`, `products`, `sale_config`, `coupons` (kiểm tra hợp lệ), `reviews`, `menu`.
+- **Dữ liệu riêng tư theo chủ sở hữu**:
+  - `app_users`: User chỉ đọc/sửa hồ sơ của chính mình; Admin đọc/cập nhật toàn bộ.
+  - `orders`: User đọc đơn của mình; Seller xem đơn chứa sản phẩm của mình; Admin xem tất cả; Khách vãng lai chỉ tra cứu qua RPC `lookup_guest_order`.
+  - `wishlist` & `notifications`: Chỉ chủ sở hữu (`userId = current_app_user_id()`) được đọc/thêm/sửa/xóa.
+  - `chat_messages`: Chỉ `senderId` hoặc `receiverId` khớp với `current_app_user_id()` mới được đọc; chỉ được gửi với `senderId = current_app_user_id()`.
+
+### 5.2. Supabase Storage (`uploads` bucket)
+- Bucket `uploads` được cấu hình **Public Read (`SELECT`)** để tải ảnh bìa sách và avatar qua CDN.
+- Chỉ người dùng đã xác thực (`authenticated`) mới được phép `INSERT`, `UPDATE`, `DELETE` tệp trong bucket này.
+
+### 5.3. Supabase Realtime
+- Bật publication `supabase_realtime` cho 2 bảng: `public.chat_messages` và `public.notifications` để nhận tin nhắn và thông báo đơn hàng tức thì không cần F5.
+
+---
+
+## 6. Tham chiếu Mã nguồn & Triển khai
+- Schema đầy đủ & RLS/Triggers/RPC: [`supabase/schema.sql`](../supabase/schema.sql)
+- Script migration nâng cấp Auth & RLS: [`supabase/migration_real_auth.sql`](../supabase/migration_real_auth.sql)
+- Script khởi tạo dữ liệu mẫu (`seed`): [`supabase/seed.mjs`](../supabase/seed.mjs)

@@ -2,17 +2,17 @@
 
 > [!NOTE]
 > **Tài liệu Thiết Kế Kiến Trúc Phần Mềm (Software Architecture Design Document)** cho hệ thống Website Thương mại điện tử Nhà sách Trí Tuệ Book.
-> 
+>
 > **Sinh viên thực hiện:** Nguyễn Văn Hiếu — **MSSV:** 501250367  
 > **Học phần:** Lập trình JavaScript (JavaScript Programming)  
 > **Hình thức:** Đồ án cá nhân (Individual Project)  
-> **Mô hình kiến trúc:** Modular Layered Architecture (Multi-Page App + Modern ES6+ & RESTful Service Layer)
+> **Mô hình kiến trúc:** Modular Layered Architecture (Vite Multi-Page App + ES6+ Modules) kết nối **Supabase Backend** (PostgreSQL, Auth JWT, RLS, RPC, Storage, Realtime) và **Vercel Hosting** (hỗ trợ Offline Fallback qua `json-server`).
 
 ---
 
 ## 1. 🌐 High-Level System Architecture (Kiến Trúc Tổng Quan)
 
-Hệ thống được thiết kế theo mô hình **Kiến trúc phân tầng hướng dịch vụ (Modular Layered Architecture)** nhằm đảm bảo tính độc lập, dễ kiểm thử và sẵn sàng tích hợp với bất kỳ nền tảng Backend nào (Node.js, Express, Docker, MySQL):
+Hệ thống áp dụng mô hình **Kiến trúc phân tầng hướng dịch vụ (Modular Layered Architecture)** với hai đường truyền dữ liệu ở tầng Infrastructure: mặc định chạy trực tiếp với **Supabase Production Cloud** thông qua JWT xác thực và tự động fallback sang **`json-server` (:3000)** khi chạy offline.
 
 ```mermaid
 flowchart TD
@@ -20,36 +20,29 @@ flowchart TD
     SELLER["🏪 Đối tác bán hàng\n(Seller Portal)"]
     ADMIN["👑 Quản trị viên\n(Admin Portal)"]
 
-    subgraph PRESENTATION["🖥️ Presentation Layer (UI Pages)"]
-        PUB_PAGES["Public Pages\n(index, detail, cart, wishlist)"]
-        AUTH_PAGES["Auth Pages\n(login, dangky, profile)"]
-        DASH_PAGES["Dashboard Pages\n(admin.html, seller.html, orders.html)"]
+    subgraph PRESENTATION["🖥️ Presentation Layer (Vite MPA - 10 HTML Pages)"]
+        PUB_PAGES["Public & Shop Pages\n(index, product-detail, cart, wishlist)"]
+        AUTH_PAGES["Auth & Profile Pages\n(login, dangky, profile, orders)"]
+        DASH_PAGES["Role Dashboards\n(admin.html, seller.html)"]
     end
 
-    subgraph CONTROLLER["🎮 Controller Layer (Page Controllers)"]
-        PAGE_CTRLS["src/js/*.js\n(home, detail, cart, orders, admin, seller)"]
-        WIDGET_CTRLS["Interactive Widgets\n(chatbot.js, internalChat.js, themeToggle.js)"]
+    subgraph CONTROLLER["🎮 Controller & Widget Layer (src/js/*.js)"]
+        PAGE_CTRLS["Page Controllers\n(home, detail, cart, orders, wishlist, profile, admin, seller, login, register)"]
+        WIDGET_CTRLS["Global UI & Widgets\n(mobileNav, chatWidget, internalChat, notificationBell, themeToggle)"]
     end
 
-    subgraph SERVICE["⚙️ Service Layer (Business Logic)"]
-        PROD_SVC["productService.js"]
-        ORDER_SVC["orderService.js"]
-        CART_SVC["cartService.js"]
-        REV_SVC["reviewService.js"]
-        COUP_SVC["couponService.js"]
-        WISH_SVC["wishlistService.js"]
-        AUTH_SVC["authService.js"]
-        IMG_SVC["imageUpload.js"]
-        EXCEL_SVC["excelImport.js"]
-        NOTIF_SVC["notificationBell.js"]
-        CHAT_SVC["internalChatService.js"]
+    subgraph SERVICE["⚙️ Service Layer (src/services/*.js & src/utils/*.js)"]
+        CORE_SVC["Core Business Services\n(authService, productService, orderService, cartService)"]
+        ENGAGE_SVC["Engagement & Promo Services\n(reviewService, wishlistService, couponService, saleService)"]
+        COMMS_SVC["Comms & AI Services\n(notificationService, internalChatService, botService, aiService)"]
+        UTILS["Shared Utilities\n(imageUpload, excelImport, excelExport, pagination, format, storage)"]
     end
 
-    subgraph INFRASTRUCTURE["📡 Data & Infrastructure Layer"]
-        AXIOS["Axios Client Instance\n(src/api/client.js :3000)"]
-        STORAGE["Web Storage\n(LocalStorage / Session)"]
-        SERVER["RESTful API Server\n(Node.js / json-server)"]
-        DB[("Database\ndb.json / MySQL")]
+    subgraph INFRASTRUCTURE["📡 Infrastructure & Backend Layer"]
+        SUPA_SDK["Supabase Client (src/api/supabaseClient.js)\nJWT Persist + Auth + PostgREST + RPC + Storage + Realtime"]
+        SUPA_CLOUD[("☁️ Supabase Cloud\nPostgreSQL + RLS + Triggers\nAuth Users + Storage 'uploads'")]
+        AXIOS["Axios Fallback (src/api/client.js :3000)"]
+        JSON_SRV[("🗄️ Offline Fallback\njson-server + db.json")]
     end
 
     USER --> PUB_PAGES
@@ -62,13 +55,19 @@ flowchart TD
     DASH_PAGES --> PAGE_CTRLS
     PUB_PAGES --> WIDGET_CTRLS
 
-    PAGE_CTRLS --> SERVICE
-    WIDGET_CTRLS --> SERVICE
+    PAGE_CTRLS --> CORE_SVC
+    PAGE_CTRLS --> ENGAGE_SVC
+    WIDGET_CTRLS --> COMMS_SVC
+    CORE_SVC --> UTILS
+    ENGAGE_SVC --> UTILS
 
-    SERVICE --> AXIOS
-    SERVICE <--> STORAGE
-    AXIOS --> SERVER
-    SERVER --> DB
+    CORE_SVC --> SUPA_SDK
+    ENGAGE_SVC --> SUPA_SDK
+    COMMS_SVC --> SUPA_SDK
+    SUPA_SDK --> SUPA_CLOUD
+
+    CORE_SVC -.->|"Offline Fallback"| AXIOS
+    AXIOS -.-> JSON_SRV
 ```
 
 ---
@@ -77,72 +76,63 @@ flowchart TD
 
 ```text
 nhasach/
-├── pages/                          # Các trang giao diện con (Multi-Page Application)
-│   ├── product-detail.html         # Trang Chi tiết sách & Luồng bình luận lồng nhau
-│   ├── cart.html                   # Trang Giỏ hàng, Voucher & Thanh toán VietQR
-│   ├── orders.html                 # Trang Lịch sử đơn hàng, Đánh giá nhận hàng & In PDF
-│   ├── wishlist.html               # Trang Danh sách sách yêu thích (Thả tim)
-│   ├── profile.html                # Trang Hồ sơ cá nhân & Upload ảnh đại diện
-│   ├── seller.html                 # Kênh Người bán (Quản lý kho sách & đơn hàng Shop)
-│   ├── admin.html                  # Dashboard Quản trị toàn sàn (5 Tabs quản trị)
-│   ├── login.html                  # Đăng nhập phân quyền 3 vai trò & OTP Gmail
-│   └── dangky.html                 # Đăng ký tài khoản người mua / gian hàng
+├── index.html                          # Trang chủ (Entry Point)
+├── pages/                              # 9 trang chức năng độc lập (Multi-Page Application)
+│   ├── product-detail.html             # Chi tiết sách, Đánh giá sao, Like & Reply lồng nhau
+│   ├── cart.html                       # Giỏ hàng, Coupon & Thanh toán COD / VietQR Demo
+│   ├── orders.html                     # Lịch sử đơn hàng, Đánh giá nhận hàng & In PDF
+│   ├── wishlist.html                   # Sách yêu thích riêng tư theo tài khoản
+│   ├── profile.html                    # Hồ sơ cá nhân, Upload Avatar & Đổi mật khẩu
+│   ├── seller.html                     # Kênh Người bán (Kho sách, Đơn Shop & Import Excel)
+│   ├── admin.html                      # Dashboard Quản trị toàn sàn
+│   ├── login.html                      # Đăng nhập Supabase Auth & Quên mật khẩu Email thật
+│   └── dangky.html                     # Đăng ký tài khoản Người mua / Gian hàng Seller
 │
-├── src/                            # Mã nguồn ứng dụng (Core Source Code)
-│   ├── api/                        # Tầng kết nối mạng
-│   │   ├── client.js               # Cấu hình Axios instance tập trung (Port 3000)
-│   │   └── auth.js                 # API xác thực tài khoản
-│   ├── assets/                     # Tài nguyên hình ảnh, Logo SVG đối ngẫu Sáng/Tối
-│   ├── css/                        # Tầng stylesheet theo mô-đun
-│   │   ├── style.css               # Phong cách trang chủ & layout dùng chung
-│   │   ├── dark-theme.css          # Giao diện tối Cosmic Obsidian toàn diện
-│   │   ├── detail.css              # Giao diện trang chi tiết & tương tác bình luận
-│   │   ├── cart.css                # Giao diện giỏ hàng & modal VietQR
-│   │   ├── orders.css              # Giao diện đơn hàng & mẫu hóa đơn PDF
-│   │   ├── wishlist.css            # Giao diện trang sách yêu thích
-│   │   ├── profile.css             # Giao diện hồ sơ & avatar
-│   │   ├── admin.css               # Giao diện bảng điều khiển Admin
-│   │   ├── seller.css              # Giao diện Kênh Người Bán
-│   │   ├── auth.css                # Giao diện đăng nhập, đăng ký & OTP
-│   │   ├── chatbot.css             # Khung chat AI tư vấn sách thông minh
-│   │   ├── internalChat.css        # Khung chat nội bộ giữa các thành viên
-│   │   ├── notificationBell.css    # Chuông thông báo đơn hàng
-│   │   └── excelImport.css         # Modal xem trước & nhập Excel
-│   ├── services/                   # Tầng Dịch vụ (Business Logic & Data Access)
-│   │   ├── productService.js       # CRUD sách, tồn kho, lọc sách, phân trang
-│   │   ├── orderService.js         # Tạo đơn, cập nhật trạng thái đơn, hủy đơn
-│   │   ├── cartService.js          # Quản lý giỏ hàng trên LocalStorage
-│   │   ├── reviewService.js        # Đánh giá sao, bình luận tự do, like, reply
-│   │   ├── wishlistService.js      # Lưu/xóa sách yêu thích theo tài khoản
-│   │   ├── couponService.js        # Kiểm tra điều kiện & áp dụng mã giảm giá
-│   │   ├── authService.js          # Đăng nhập, đăng ký, phân quyền, đổi mật khẩu
-│   │   ├── imageUpload.js          # Chọn file ảnh, live preview & nén Base64
-│   │   ├── excelImport.js          # Phân tích & nhập sách hàng loạt từ file .xlsx
-│   │   ├── notificationBell.js     # Lắng nghe biến động đơn & đẩy thông báo chuông
-│   │   ├── internalChatService.js  # Tải & lưu lịch sử hội thoại nội bộ
-│   │   ├── saleService.js          # Quản lý chiến dịch Flash Sale & đếm ngược
-│   │   └── categoryService.js      # Lấy danh mục thể loại sách
-│   ├── utils/                      # Tầng tiện ích dùng chung
-│   │   ├── format.js               # Định dạng tiền tệ VND, thời gian, escapeHtml
-│   │   └── pagination.js           # Phân trang client-side dùng chung cho các bảng
-│   └── js/                         # Tầng điều khiển giao diện (Page Controllers)
-│       ├── home.js                 # Điều khiển trang chủ (Filter, Kệ sách, Sale)
-│       ├── detail.js               # Điều khiển trang chi tiết, Like & Reply bình luận
-│       ├── cart.js                 # Điều khiển giỏ hàng, Coupon & VietQR
-│       ├── orders.js               # Điều khiển lịch sử đơn & xuất hóa đơn PDF
-│       ├── wishlist.js             # Điều khiển danh sách sách yêu thích
-│       ├── profile.js              # Điều khiển trang hồ sơ & avatar
-│       ├── admin.js                # Điều khiển trang Admin, xuất Excel, quản lý Sale
-│       ├── seller.js               # Điều khiển trang Seller & Import Excel
-│       ├── chatbot.js              # Điều khiển Trợ lý AI tư vấn sách
-│       ├── internalChat.js         # Điều khiển drawer chat trao đổi giữa các thành viên
-│       └── themeToggle.js          # Chuyển đổi giao diện Sáng/Tối & chống chớp FOUC
+├── src/
+│   ├── api/
+│   │   ├── supabaseClient.js           # Client Supabase chính + createStatelessSupabaseClient()
+│   │   └── client.js                   # Axios client dự phòng cổng 3000
+│   ├── assets/                         # Logo SVG đối ngẫu (logo-light.svg, logo-dark.svg)
+│   ├── css/                            # Stylesheet theo từng trang và thành phần
+│   │   ├── style.css, dark-theme.css, mobile-nav.css, logo.css
+│   │   ├── detail.css, cart.css, orders.css, wishlist.css, profile.css
+│   │   ├── admin.css, seller.css, auth.css
+│   │   └── chatbot.css, internalChat.css, notifications.css, excelImport.css
+│   ├── services/                       # 14 Business & Data Access Services
+│   │   ├── authService.js              # Supabase Auth JWT, syncSession, phân quyền, đổi pass
+│   │   ├── productService.js           # CRUD sách, cập nhật tồn kho & lượt bán
+│   │   ├── orderService.js             # Đặt hàng qua RPC place_order, cập nhật trạng thái, tra cứu
+│   │   ├── categoryService.js          # Danh mục thể loại sách
+│   │   ├── menuService.js              # Menu điều hướng động
+│   │   ├── saleService.js              # Chiến dịch Flash Sale & tính giá giảm
+│   │   ├── couponService.js            # Kiểm tra điều kiện & quản lý Voucher
+│   │   ├── reviewService.js            # Đánh giá, Verified Purchase, toggleLike & addReply RPC
+│   │   ├── wishlistService.js          # Quản lý sách yêu thích
+│   │   ├── notificationService.js      # Chuông thông báo & đồng bộ Realtime
+│   │   ├── internalChatService.js      # Danh bạ an toàn (get_chat_contacts RPC) & tin nhắn
+│   │   ├── cartService.js              # Quản lý giỏ hàng theo user trên LocalStorage
+│   │   ├── aiService.js                # Giao tiếp Google Gemini API
+│   │   └── botService.js               # Chatbot AI tư vấn sách Lightweight RAG
+│   ├── utils/                          # 6 Utilities dùng chung
+│   │   ├── format.js                   # Format tiền VND, ngày giờ, escapeHtml
+│   │   ├── storage.js                  # Cache hồ sơ user trên trình duyệt
+│   │   ├── pagination.js               # Phân trang dùng chung
+│   │   ├── imageUpload.js              # Nén ảnh Canvas + Upload Supabase Storage
+│   │   ├── excelExport.js              # Xuất kho sách & doanh thu ra .xlsx
+│   │   └── excelImport.js              # Đọc & kiểm tra file Excel .xlsx trước khi nhập kho
+│   └── js/                             # 15 Page Controllers & Global UI Modules
+│       ├── home.js, detail.js, cart.js, orders.js, wishlist.js, profile.js
+│       ├── admin.js, seller.js, login.js, register.js
+│       └── mobileNav.js, chatWidget.js, internalChat.js, notificationBell.js, themeToggle.js
 │
-├── index.html                      # Trang chủ (Entry Point)
-├── db.json                         # Cơ sở dữ liệu REST API (Mock / Seed Database)
-├── vite.config.js                  # Cấu hình đa trang (Multi-page App) của Vite
-├── package.json                    # Khai báo thư viện & kịch bản chạy dự án
-└── start.bat                       # Script 1-Click khởi động cả Backend và Frontend
+├── supabase/
+│   ├── schema.sql                      # Schema đầy đủ (11 bảng, Triggers, RPC, RLS, Storage)
+│   ├── migration_real_auth.sql         # Migration nâng cấp Auth JWT + RLS cho DB hiện hữu
+│   └── seed.mjs                        # Script đồng bộ auth.users + dữ liệu mẫu từ db.json
+├── docs/                               # Tài liệu Kiến trúc, Database, API & Workflow
+├── vite.config.js                      # Build config cho 10 HTML entry points
+├── vercel.json                         # Static hosting & rewrite trên Vercel
+└── package.json
 ```
 
 ---
@@ -152,12 +142,12 @@ nhasach/
 ```mermaid
 flowchart LR
     subgraph PRESENTATION["🖥️ View Layer"]
-        HTML["HTML5 Templates\n(pages/*.html)"]
+        HTML["HTML5 Templates\n(index.html & pages/*.html)"]
         CSS["Modular CSS\n(src/css/*.css)"]
     end
 
     subgraph CONTROLLER["🎮 Controller Layer"]
-        JS_PAGE["Page Controllers\n(src/js/*.js)"]
+        JS_PAGE["Page & Widget Controllers\n(src/js/*.js)"]
     end
 
     subgraph SERVICE["⚙️ Service Layer"]
@@ -166,32 +156,30 @@ flowchart LR
     end
 
     subgraph INFRA["🗄️ Infrastructure Layer"]
-        AXIOS["Axios Client\n(src/api/client.js)"]
-        STORAGE["LocalStorage\n(Session / Cart)"]
-        REST_API["Backend REST API\n(:3000)"]
+        SUPA["Supabase Client\n(Auth + PostgREST + RPC + Storage)"]
+        STORAGE["LocalStorage\n(Giỏ hàng / Cache hồ sơ / Theme)"]
+        FALLBACK["Axios Fallback (:3000)\n(json-server Offline)"]
     end
 
-    HTML -->|"DOM Events (click, submit)"| JS_PAGE
+    HTML -->|"DOM Events"| JS_PAGE
     JS_PAGE -->|"Calls business methods"| SERVICES
     SERVICES -->|"Uses helpers"| UTILS
-    SERVICES -->|"HTTP Requests"| AXIOS
-    SERVICES <-->|"Cache / Session"| STORAGE
-    AXIOS -->|"JSON Response"| REST_API
-    JS_PAGE -->|"Render DOM updates"| HTML
+    SERVICES -->|"JWT Authenticated Calls"| SUPA
+    SERVICES <-->|"Cart / Cache"| STORAGE
+    SERVICES -.->|"If !isSupabaseEnabled"| FALLBACK
+    JS_PAGE -->|"Render DOM"| HTML
 ```
 
 | Tầng kiến trúc | Thành phần đại diện | Nhiệm vụ chính |
 |:---|:---|:---|
-| **View Layer** | HTML5, Modern CSS, Dark Theme | Hiển thị giao diện người dùng, cấu trúc trang, hiệu ứng chuyển động và hỗ trợ đa thiết bị Responsive. |
-| **Controller Layer** | `src/js/*.js` | Bắt các sự kiện DOM từ người dùng, gọi Service tương ứng, nhận dữ liệu và thực hiện Render giao diện DOM động. |
-| **Service Layer** | `src/services/*.js` | Đóng gói toàn bộ logic nghiệp vụ (tính tiền, áp voucher, tính sao trung bình, nén ảnh, xử lý Excel). |
-| **Infrastructure Layer** | `api/client.js`, `storage.js` | Giao tiếp mạng qua HTTP Axios tới Backend `:3000`, quản lý bộ nhớ đệm `localStorage` (phiên đăng nhập, giỏ hàng). |
+| **View Layer** | HTML5, Modular CSS, Dark Theme, Mobile Nav | Giao diện 10 trang đa vai trò, Responsive Mobile Topbar 1 hàng & Drawer, chế độ Tối Cosmic Obsidian. |
+| **Controller Layer** | `src/js/*.js` | Gọi `authService.syncSession()` kiểm tra JWT thật, lắng nghe DOM events, điều phối render & Realtime UI. |
+| **Service Layer** | `src/services/*.js` + `src/utils/*.js` | Đóng gói nghiệp vụ; tự động ưu tiên gọi Supabase (RPC/PostgREST/Storage) và giữ khả năng fallback sang Axios nếu chạy offline. |
+| **Infrastructure Layer** | `supabaseClient.js`, `client.js`, `storage.js` | Quản lý phiên JWT Supabase (`persistSession: true`), kết nối WebSocket Realtime, Storage CDN và LocalStorage. |
 
 ---
 
-## 4. 🔄 Request-Response Workflow (Chu Trình Xử Lý Dữ Liệu)
-
-Sơ đồ mô tả quy trình tuần tự chuẩn khi người dùng thực hiện bất kỳ hành động nào trên hệ thống:
+## 4. 🔄 Request-Response & Security Data Flow
 
 ```mermaid
 sequenceDiagram
@@ -199,131 +187,109 @@ sequenceDiagram
     participant View as 🖥️ HTML / DOM
     participant Ctrl as 🎮 Controller (src/js/)
     participant Svc as ⚙️ Service (src/services/)
-    participant API as 📡 Axios Client (:3000)
-    participant DB as 🗄️ Database (db.json)
+    participant Supa as ☁️ Supabase API (JWT)
+    participant DB as 🗄️ PostgreSQL + RLS
 
-    User->>View: Tương tác (Click, Nhập form, Submit)
-    View->>Ctrl: Phát sự kiện DOM (Event Trigger)
-    Ctrl->>Ctrl: Validate dữ liệu đầu vào phía Client
-    Ctrl->>Svc: Gọi hàm Service nghiệp vụ tương ứng
-    Svc->>API: HTTP Request (GET, POST, PUT, PATCH, DELETE)
-    API->>DB: Thực thi truy vấn / Ghi dữ liệu
-    DB-->>API: Trả kết quả dữ liệu
-    API-->>Svc: JSON Response chuẩn REST
-    Svc->>Svc: Xử lý dữ liệu thô (Tính toán, Enrich data)
-    Svc-->>Ctrl: Dữ liệu đã xử lý sạch
-    Ctrl->>View: Render DOM / Hiển thị Toast thông báo
-    View-->>User: Giao diện cập nhật tức thì (UX mượt mà)
+    User->>View: Tương tác (Đăng nhập / Mua hàng / Quản trị)
+    View->>Ctrl: Event Trigger
+    Ctrl->>Svc: Gọi nghiệp vụ tương ứng
+    Svc->>Supa: Gửi Request kèm JWT Authorization Header
+    Supa->>DB: Giải mã auth.uid() & Kiểm tra Policy RLS / Trigger
+    alt Hợp lệ
+        DB-->>Supa: Thực thi Query / RPC SECURITY DEFINER
+        Supa-->>Svc: JSON Response
+        Svc-->>Ctrl: Dữ liệu sạch
+        Ctrl->>View: Cập nhật DOM / Toast
+    else Không đủ quyền hoặc giả mạo
+        DB-->>Supa: Chặn theo RLS (0 dòng hoặc Exception)
+        Supa-->>Svc: Error 401 / 403 / 42501
+        Svc-->>Ctrl: Throw Error rõ ràng
+        Ctrl->>View: Hiển thị cảnh báo / Redirect Login
+    end
 ```
 
 ---
 
-## 5. 🔐 Multi-Role Authentication & Route Guard Flow (Xác Thực & Phân Quyền)
+## 5. 🔐 Multi-Role Authentication, Email Recovery & RLS Guard Flow
 
-Hệ thống bảo vệ phân quyền 3 cấp độ (`customer`, `seller`, `admin`) và ngăn chặn truy cập trái phép vào các trang nhạy cảm:
+Khác với bản mock ban đầu chỉ kiểm tra `localStorage` ở client, hệ thống hiện tại bảo vệ **2 lớp** (UI Guard + Database RLS/Trigger):
 
 ```mermaid
 flowchart TD
-    A["👤 Người dùng mở một trang\n(admin.html / seller.html / profile.html)"] --> B["authService.getCurrentUser()"]
-    B --> C{"Đã đăng nhập chưa?"}
+    A["👤 Người dùng mở trang\n(admin.html / seller.html / profile.html / orders.html)"] --> B["authService.syncSession()"]
+    B --> C{"JWT Session hợp lệ\ntrên Supabase Auth?"}
 
-    C -- "Chưa" --> REDIR_LOGIN["⚠️ Chặn truy cập\nRedirect -> pages/login.html"]
-    C -- "Đã đăng nhập" --> D{"Kiểm tra vai trò (Role)"}
+    C -- "Không có hoặc hết hạn" --> CLEAR["Xóa cache storage\nRedirect -> pages/login.html"]
+    C -- "Có JWT hợp lệ" --> FETCH["Truy vấn app_users\ntheo auth_uid = auth.uid()"]
+    FETCH --> LOCK{"Tài khoản bị khóa?"}
+    LOCK -- "isLocked = true" --> SIGNOUT["signOut() + Chặn truy cập"]
+    LOCK -- "Hợp lệ" --> ROLE{"Kiểm tra Role"}
 
-    D -- "Trang Admin nhưng role != admin" --> FORBID1["⛔ Chặn truy cập (403)\nAlert: Bạn không có quyền Admin\nRedirect -> index.html"]
-    D -- "Trang Seller nhưng role != seller" --> FORBID2["⛔ Chặn truy cập (403)\nAlert: Bạn không có quyền Người bán\nRedirect -> index.html"]
-    D -- "Vai trò hợp lệ" --> ALLOW["✅ Cho phép tải trang\nRender Dashboard & Dữ liệu"]
+    ROLE -- "Trang Admin nhưng role != admin" --> FORBID1["⛔ Chặn & Redirect login.html"]
+    ROLE -- "Trang Seller nhưng role != seller" --> FORBID2["⛔ Chặn & Redirect login.html"]
+    ROLE -- "Đúng vai trò" --> ALLOW["✅ Cho phép tải dữ liệu\n(Mọi query đều bị RLS lọc theo auth.uid())"]
 
-    style REDIR_LOGIN fill:#ffa94d,color:#fff
+    style CLEAR fill:#ffa94d,color:#fff
+    style SIGNOUT fill:#ff6b6b,color:#fff
     style FORBID1 fill:#ff6b6b,color:#fff
     style FORBID2 fill:#ff6b6b,color:#fff
     style ALLOW fill:#51cf66,color:#fff
 ```
 
+- **Chống tự nâng quyền (Privilege Escalation Protection):** Trigger `handle_new_auth_user()` chỉ cho phép role `customer` hoặc `seller` khi tự đăng ký; Trigger `guard_app_user_update()` chặn mọi request không phải `admin` cố sửa `role`, `isLocked`, `status`, `shopStatus`.
+- **Khôi phục mật khẩu thật:** Sử dụng `supabase.auth.resetPasswordForEmail()` gửi link có chữ ký một lần về hộp thư người dùng và kích hoạt sự kiện `PASSWORD_RECOVERY` trên `login.html`.
+
 ---
 
-## 6. 🛒 Shopping Cart, Coupon & VietQR Checkout Workflow
+## 6. 🛒 Shopping Cart, Coupon & Atomic `place_order` Checkout Flow
 
 ```mermaid
 flowchart TD
-    A["👤 Khách hàng chọn sách"] --> B["Bấm 'Thêm vào giỏ hàng'"]
-    B --> C["cartService.addToCart(product, qty)\nLưu vào LocalStorage"]
-    C --> D["Cập nhật số đếm badge giỏ hàng"]
+    A["👤 Khách chọn sách"] --> B["cartService.addToCart()\n(Chặn Seller tự mua sách mình)"]
+    B --> C["Vào Giỏ hàng (pages/cart.html)"]
+    C --> D{"Áp mã Coupon?"}
+    D -- "Có" --> E["couponService.applyCoupon()\nKiểm tra điều kiện sơ bộ UI"]
+    D -- "Không" --> F["Tính tạm tính + phí ship"]
+    E --> F
 
-    D --> E["👤 Vào trang Giỏ hàng\n(pages/cart.html)"]
-    E --> F["Hiển thị danh sách sách & tính tạm tính"]
-    F --> G{"Nhập mã giảm giá (Coupon)?"}
+    F --> G{"Chọn phương thức"}
+    G -- "COD" --> H["Gọi orderService.createOrder(payload)"]
+    G -- "VietQR (Demo)" --> I["Hiện QR Demo -> Xác nhận"] --> H
 
-    G -- "Có" --> H["couponService.verifyCoupon(code, subTotal)"]
-    H --> I{"Mã hợp lệ & đủ điều kiện?"}
-    I -- "Không" --> ERR_COUP["❌ Báo lỗi voucher"]
-    I -- "Hợp lệ" --> APPLY_COUP["✅ Áp dụng giảm giá\nTrừ tiền trực tiếp vào Total"]
-    G -- "Không" --> J["Giữ nguyên tiền hàng"]
+    H --> RPC["⚡ RPC place_order(p_order) trên PostgreSQL"]
+    RPC --> VERIFY["Khóa dòng sản phẩm FOR UPDATE\nKiểm tra tồn kho, tự tính giá Flash Sale & Voucher\nLấy userId từ auth.uid(), ép shippingFee >= 0"]
+    VERIFY --> ATOMIC["Trừ stock, tăng soldCount, tăng usedCount\nINSERT orders + INSERT notifications"]
+    ATOMIC --> DONE["✅ Xóa giỏ hàng & Hiện mã đơn thành công"]
 
-    APPLY_COUP --> K["Chọn phương thức thanh toán"]
-    J --> K
-    K --> L{"Phương thức?"}
-    L -- "COD" --> COD_FLOW["Thanh toán khi nhận hàng"]
-    L -- "VietQR" --> QR_FLOW["Tự động sinh mã VietQR\nkèm cú pháp & số tiền chính xác"]
-
-    COD_FLOW --> SUBMIT["Bấm 'Xác Nhận Đặt Hàng'"]
-    QR_FLOW --> SUBMIT
-    SUBMIT --> ORDER_SVC["orderService.create(orderPayload)"]
-    ORDER_SVC --> REDUCE_STOCK["Trừ số lượng tồn kho sách\n(PATCH /products/:id)"]
-    REDUCE_STOCK --> CLEAR_CART["Xóa sạch giỏ hàng\n(cartService.clearCart)"]
-    CLEAR_CART --> SUCCESS_ORDER["✅ Chuyển hướng -> pages/orders.html\n(Kích hoạt chuông thông báo mới)"]
-
-    style ERR_COUP fill:#ff6b6b,color:#fff
-    style APPLY_COUP fill:#51cf66,color:#fff
-    style SUCCESS_ORDER fill:#51cf66,color:#fff
+    style RPC fill:#4f46e5,color:#fff
+    style DONE fill:#51cf66,color:#fff
 ```
 
 ---
 
-## 7. 🤖 Dual Chat Architecture (Hệ Thống Kênh Chat Kép)
+## 7. 🤖 Dual Chat Architecture (AI RAG + Realtime Member Chat)
 
-Dự án sở hữu hai kênh chat phục vụ hai mục đích chuyên biệt:
-1. **AI Chatbot:** Trợ lý tư vấn chọn sách thông minh 24/7 (Phân tích từ khóa tìm sách).
-2. **Internal Member Chat:** Khung chat nội bộ giữa khách hàng và các gian hàng đối tác / Quản trị viên (Lưu trữ bền vững).
-
-```mermaid
-flowchart TD
-    USER_CHAT["👤 Khách hàng muốn trò chuyện"] --> CHOOSE{"Chọn kênh trò chuyện?"}
-
-    %% Kênh 1: AI Chatbot
-    CHOOSE -- "Hỏi gợi ý / Tìm sách" --> AI_BOT["🤖 Mở Widget AI Chatbot\n(chatbot.js)"]
-    AI_BOT --> NLP["Bộ phân tích từ khóa thông minh\n(Thể loại, Tác giả, Mức giá, Hot, Sale)"]
-    NLP --> SEARCH_PRODS["productService.getAll()\nLọc sách phù hợp trong kho"]
-    SEARCH_PRODS --> BOT_REPLY["Tự động phản hồi kèm thẻ sách\n(Ảnh + Giá + Link chi tiết sách)"]
-
-    %% Kênh 2: Internal Member Chat
-    CHOOSE -- "Nhắn tin hỏi Shop / Admin" --> INT_CHAT["💬 Mở Drawer Chat Nội Bộ\n(internalChat.js)"]
-    INT_CHAT --> LOAD_CONTACTS["Tải danh bạ đối tác\n(internalChatService.getAvailableContacts)"]
-    LOAD_CONTACTS --> SELECT_SHOP["Chọn gian hàng / Admin cần trao đổi"]
-    SELECT_SHOP --> GET_CONVO["GET /chatMessages\n(Lấy lịch sử hội thoại 2 chiều)"]
-    GET_CONVO --> SEND_MSG["Gửi tin nhắn mới -> POST /chatMessages"]
-    SEND_MSG --> SYNC_DRAW["Cập nhật tức thì bong bóng chat\n(Lưu bền vững vào CSDL)"]
-
-    style BOT_REPLY fill:#51cf66,color:#fff
-    style SYNC_DRAW fill:#51cf66,color:#fff
-```
+1. **AI Chatbot (`chatWidget.js` + `botService.js` + `aiService.js`):** Tư vấn sách dựa trên dữ liệu kho sách thực tế (Lightweight RAG kết hợp Google Gemini API do người dùng tùy chọn cấu hình key) và hỗ trợ tra cứu đơn hàng của tài khoản đang đăng nhập.
+2. **Internal Member Chat (`internalChat.js` + `internalChatService.js`):**
+   - Gọi RPC **`get_chat_contacts()`** chỉ trả về `id, name, role, avatar, shopName` (ẩn hoàn toàn email, số điện thoại, địa chỉ của người khác).
+   - Tin nhắn lưu ở bảng `chat_messages` được RLS bảo vệ (`senderId = mình` hoặc `receiverId = mình`) và đồng bộ tức thì qua **Supabase Realtime**.
 
 ---
 
-## 8. 🗺️ Page Navigation Map (Bản Đồ Điều Hướng Trang)
+## 8. 🗺️ Page Navigation Map (10 Trang MPA)
 
 ```mermaid
 flowchart TD
-    HOME["🏠 Trang Chủ\n(index.html)"]
-    DETAIL["📖 Chi Tiết Sách\n(product-detail.html)"]
-    CART["🛒 Giỏ Hàng & Checkout\n(cart.html)"]
-    ORDERS["📦 Lịch Sử Đơn Hàng\n(orders.html)"]
-    WISHLIST["❤️ Sách Yêu Thích\n(wishlist.html)"]
-    PROFILE["👤 Hồ Sơ Cá Nhân\n(profile.html)"]
-    LOGIN["🔑 Đăng Nhập & OTP\n(login.html)"]
-    REGISTER["📝 Đăng Ký Tài Khoản\n(dangky.html)"]
-    ADMIN["👑 Dashboard Admin\n(admin.html)"]
-    SELLER["🏪 Kênh Người Bán\n(seller.html)"]
+    HOME["🏠 Trang Chủ (index.html)"]
+    DETAIL["📖 Chi Tiết Sách (pages/product-detail.html)"]
+    CART["🛒 Giỏ Hàng (pages/cart.html)"]
+    ORDERS["📦 Đơn Hàng (pages/orders.html)"]
+    WISHLIST["❤️ Yêu Thích (pages/wishlist.html)"]
+    PROFILE["👤 Hồ Sơ (pages/profile.html)"]
+    LOGIN["🔑 Đăng Nhập (pages/login.html)"]
+    REGISTER["📝 Đăng Ký (pages/dangky.html)"]
+    ADMIN["👑 Admin Portal (pages/admin.html)"]
+    SELLER["🏪 Seller Portal (pages/seller.html)"]
 
     HOME <--> DETAIL
     HOME <--> CART
@@ -345,38 +311,9 @@ flowchart TD
 
 ---
 
-## 9. ⚡ Cross-Cutting Concerns & Technical Highlights (Các Điểm Nhấn Kỹ Thuật)
+## 9. ⚡ Cross-Cutting Concerns & Technical Highlights
 
-### 9.1. Chống chớp trắng màn hình (Anti-FOUC Mechanism)
-- **Vấn đề:** Trình duyệt tải trang mặc định nền trắng, sau khi file CSS/JS ngoài nạp xong mới chuyển sang theme Tối $\rightarrow$ Gây chớp lóa mắt khó chịu.
-- **Giải pháp kiến trúc:** Nhúng một đoạn mã JavaScript inline siêu ngắn ngay trong thẻ `<head>` của tất cả 9 trang HTML:
-  ```javascript
-  (function() {
-      var m = localStorage.getItem('theme_mode');
-      if (m === 'dark' || (!m && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-          document.documentElement.classList.add('dark');
-      }
-  })();
-  ```
-  Nhờ đó theme Tối được kích hoạt ngay trước khi DOM bắt đầu render lần đầu tiên.
-
-### 9.2. Tối ưu hóa hiệu năng DOM (Performance & Lazy Rendering)
-- **Carousel Kệ sách trang chủ:** Áp dụng **Lazy Chunking** chỉ nạp 5 thẻ sách đầu tiên vào DOM mỗi kệ; phần còn lại chỉ được render khi người dùng cuộn ngang tới gần cuối hàng.
-- **Tìm kiếm:** Áp dụng mô hình **Xem thêm (Load More)** hiển thị theo từng đợt 8 cuốn.
-- **Bảng Quản trị Admin/Seller:** Áp dụng phân trang client-side độc lập (`src/utils/pagination.js`) cố định 10 bản ghi/trang, giúp bảng dữ liệu luôn mượt mà kể cả khi có hàng trăm đầu sách.
-
-### 9.3. Xử lý xuất nhập dữ liệu hiện đại
-- **Xuất PDF hóa đơn (`html2pdf.js`):** Định dạng A4 chuyên nghiệp, có logo nhà sách, bảng kê chi tiết và mã đơn hàng.
-- **Xuất & Nhập Excel (`xlsx` - SheetJS):** 
-  - Xuất toàn bộ báo cáo doanh thu và kho sách ra file `.xlsx`.
-  - Đọc file Excel tải lên, kiểm tra tính hợp lệ dữ liệu (validate giá bán, tồn kho, thể loại) và xem trước bảng Preview trước khi cho phép nạp hàng loạt vào CSDL.
-
----
-
-## 10. 🎯 Kết Luận
-
-Tài liệu thiết kế kiến trúc phần mềm này:
-1. Khẳng định tính chuẩn mực, sạch sẽ và có tổ chức cao của đồ án **Trí Tuệ Book**.
-2. Chứng minh đầy đủ năng lực làm chủ kiến trúc phần mềm, tư duy phân tách tầng độc lập và làm chủ các công nghệ JavaScript hiện đại nhất.
-3. Là tài liệu trung tâm hoàn hảo phục vụ cho việc thuyết trình, bảo vệ đồ án tốt nghiệp và bàn giao hệ thống!
-
+1. **Anti-FOUC Dark Mode:** Script inline ngay trong `<head>` của cả 10 trang HTML đọc `localStorage.getItem('theme_mode')` để áp class `.dark` trước khi render.
+2. **Unified Mobile Navigation (`mobileNav.js` & `mobile-nav.css`):** Tự động đồng bộ Header 1 hàng gọn trên mobile kèm Drawer trượt và phân quyền menu theo vai trò.
+3. **Hiệu năng DOM:** Lazy Chunking cho kệ sách trang chủ, Load More khi tìm kiếm và Pagination dùng chung (`pagination.js`) cho các bảng dữ liệu lớn ở Admin/Seller.
+4. **Xử lý Ảnh & Tài liệu:** Nén ảnh qua HTML5 Canvas rồi đẩy lên Supabase Storage (`imageUpload.js`); xuất hóa đơn A4 PDF (`html2pdf.js`); xuất/nhập kho Excel `.xlsx` (`xlsx`).
