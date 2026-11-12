@@ -762,7 +762,13 @@ function renderOrders(orders) {
     // Lưu lại kết quả lọc hiện tại để thanh phân trang gọi lại được
     filteredOrders = Array.isArray(orders) ? orders : [];
 
-    const sorted = [...filteredOrders].reverse();
+    // Sắp xếp đơn hàng từ mới đến cũ (theo createdAt giảm dần, tie-break theo id giảm dần)
+    const sorted = [...filteredOrders].sort((a, b) => {
+        const timeA = new Date(a.createdAt || 0).getTime();
+        const timeB = new Date(b.createdAt || 0).getTime();
+        if (timeB !== timeA) return timeB - timeA;
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+    });
     const pageData = paginate(sorted, ordersPage, ordersPageSize);
 
     if (!filteredOrders || filteredOrders.length === 0) {
