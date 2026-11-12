@@ -1,0 +1,685 @@
+/* =========================================================
+   UNIFIED RESPONSIVE MOBILE TOPBAR & SLIDE-OUT APP DRAWER
+   Chỉ kích hoạt ở Tablet & Mobile (<= 900px). Desktop giữ nguyên.
+   ========================================================= */
+
+.mobile-nav-toggle-btn,
+.mobile-only-cart-btn {
+  display: none;
+}
+
+.mobile-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 10040;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.mobile-drawer-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(86vw, 336px);
+  max-width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  background: #ffffff;
+  color: #0f172a;
+  z-index: 10050;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.18);
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  border-left: 1px solid #e2e8f0;
+}
+
+.mobile-drawer.open {
+  transform: translateX(0);
+}
+
+body.mobile-drawer-open {
+  overflow: hidden;
+}
+
+/* DRAWER HEADER */
+.mobile-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+
+.mobile-drawer-brand img {
+  height: 30px;
+  width: auto;
+  display: block;
+}
+
+.mobile-drawer-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.mobile-drawer-close:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+/* DRAWER SCROLLABLE BODY */
+.mobile-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* USER PROFILE HERO CARD */
+.mobile-drawer-user-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+  border: 1px solid #e0e7ff;
+  text-decoration: none;
+  color: inherit;
+}
+
+.mobile-drawer-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.22);
+}
+
+.mobile-drawer-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mobile-drawer-user-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-drawer-user-name {
+  font-size: 0.94rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.mobile-drawer-user-sub {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #4338ca;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.mobile-drawer-user-arrow {
+  color: #94a3b8;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.mobile-drawer-guest-card {
+  padding: 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+  border: 1px solid #e2e8f0;
+}
+
+.mobile-drawer-guest-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.mobile-drawer-guest-desc {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-bottom: 12px;
+}
+
+.mobile-drawer-guest-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mobile-drawer-btn-login,
+.mobile-drawer-btn-register {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.18s ease;
+}
+
+.mobile-drawer-btn-login {
+  background: #ffffff;
+  color: #4f46e5;
+  border: 1px solid #c7d2fe;
+}
+
+.mobile-drawer-btn-register {
+  background: #4f46e5;
+  color: #ffffff;
+  border: 1px solid #4f46e5;
+}
+
+/* DRAWER MENU SECTIONS */
+.mobile-drawer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-drawer-section-title {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  padding: 0 8px 4px;
+}
+
+.mobile-drawer-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 10px;
+  border-radius: 12px;
+  text-decoration: none;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.mobile-drawer-link:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.mobile-drawer-link.active {
+  background: #eef2ff;
+  color: #4338ca;
+  font-weight: 700;
+}
+
+.mobile-drawer-link-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.mobile-drawer-link.active .mobile-drawer-link-icon {
+  background: #e0e7ff;
+}
+
+.mobile-drawer-link-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-drawer-link-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.mobile-drawer-link-pill.danger {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* ACCORDION SUBMENU (THỂ LOẠI SÁCH) */
+.mobile-drawer-accordion-toggle .mobile-drawer-chevron {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+}
+
+.mobile-drawer-accordion-toggle.expanded .mobile-drawer-chevron {
+  transform: rotate(180deg);
+}
+
+.mobile-drawer-sublist {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 4px 44px;
+}
+
+.mobile-drawer-sublist.expanded {
+  display: flex;
+}
+
+.mobile-drawer-sublink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.mobile-drawer-sublink:hover {
+  background: #f8fafc;
+  color: #4f46e5;
+}
+
+/* DRAWER FOOTER */
+.mobile-drawer-footer {
+  padding: 12px 16px 16px;
+  border-top: 1px solid #f1f5f9;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mobile-drawer-theme-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+}
+
+.mobile-drawer-logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.18s ease;
+}
+
+.mobile-drawer-logout-btn:hover {
+  background: #fee2e2;
+}
+
+/* DARK MODE DRAWER */
+html.dark .mobile-drawer,
+body.dark .mobile-drawer {
+  background: #0f172a;
+  color: #f8fafc;
+  border-left-color: #1e293b;
+}
+
+html.dark .mobile-drawer-header,
+body.dark .mobile-drawer-header,
+html.dark .mobile-drawer-footer,
+body.dark .mobile-drawer-footer {
+  border-color: #1e293b;
+  background: #0f172a;
+}
+
+html.dark .mobile-drawer-close,
+body.dark .mobile-drawer-close {
+  background: #1e293b;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+
+html.dark .mobile-drawer-user-card,
+body.dark .mobile-drawer-user-card,
+html.dark .mobile-drawer-guest-card,
+body.dark .mobile-drawer-guest-card {
+  background: linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%);
+  border-color: #334155;
+}
+
+html.dark .mobile-drawer-user-name,
+body.dark .mobile-drawer-user-name,
+html.dark .mobile-drawer-guest-title,
+body.dark .mobile-drawer-guest-title {
+  color: #f8fafc;
+}
+
+html.dark .mobile-drawer-user-sub,
+body.dark .mobile-drawer-user-sub {
+  background: rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+}
+
+html.dark .mobile-drawer-link,
+body.dark .mobile-drawer-link {
+  color: #cbd5e1;
+}
+
+html.dark .mobile-drawer-link:hover,
+body.dark .mobile-drawer-link:hover {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+html.dark .mobile-drawer-link.active,
+body.dark .mobile-drawer-link.active {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+
+html.dark .mobile-drawer-link-icon,
+body.dark .mobile-drawer-link-icon {
+  background: #1e293b;
+}
+
+html.dark .mobile-drawer-sublink,
+body.dark .mobile-drawer-sublink {
+  color: #94a3b8;
+}
+
+html.dark .mobile-drawer-sublink:hover,
+body.dark .mobile-drawer-sublink:hover {
+  background: #1e293b;
+  color: #a5b4fc;
+}
+
+html.dark .mobile-drawer-theme-row,
+body.dark .mobile-drawer-theme-row {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html.dark .mobile-drawer-logout-btn,
+body.dark .mobile-drawer-logout-btn {
+  background: rgba(220, 38, 38, 0.14);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #fca5a5;
+}
+
+/* =========================================================
+   MOBILE & TABLET TOPBAR RULES (<= 900px) - LUÔN ĐÚNG 1 HÀNG
+   ========================================================= */
+@media (max-width: 900px) {
+  .header.has-mobile-nav,
+  .admin-topbar.has-mobile-nav {
+    height: 60px !important;
+    min-height: 60px !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .header.has-mobile-nav .header-content,
+  .header.has-mobile-nav .header-inner,
+  .admin-topbar.has-mobile-nav .admin-topbar-inner {
+    height: 60px !important;
+    min-height: 60px !important;
+    padding: 0 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .header.has-mobile-nav .brand-logo-container img,
+  .admin-topbar.has-mobile-nav .brand-logo-container img {
+    height: 30px !important;
+    max-height: 30px !important;
+  }
+
+  .admin-topbar.has-mobile-nav .admin-badge,
+  .admin-topbar.has-mobile-nav .seller-badge {
+    font-size: 0.64rem !important;
+    padding: 3px 8px !important;
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Ẩn menu chữ & link dài khỏi thanh trên, đưa toàn bộ vào Drawer */
+  .header.has-mobile-nav .menu,
+  .header.has-mobile-nav .user-status,
+  .header.has-mobile-nav .header-nav > a:not(.mobile-only-cart-btn),
+  .header.has-mobile-nav .header-nav > button:not(.theme-switch-btn):not(.mobile-nav-toggle-btn),
+  .admin-topbar.has-mobile-nav .admin-actions > a,
+  .admin-topbar.has-mobile-nav .admin-actions > .btn-admin-logout {
+    display: none !important;
+  }
+
+  /* Canh phải nhóm nút icon cùng kích thước đồng nhất */
+  .header.has-mobile-nav .header-actions,
+  .header.has-mobile-nav .header-nav,
+  .admin-topbar.has-mobile-nav .admin-actions {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 7px !important;
+    width: auto !important;
+    flex: 0 0 auto !important;
+    margin-left: auto !important;
+  }
+
+  /* Các nút trên Topbar đều chuẩn 36x36px squircle hiện đại */
+  .header.has-mobile-nav .theme-switch-btn,
+  .header.has-mobile-nav .btn-notification-bell,
+  .header.has-mobile-nav .header-actions .cart-icon,
+  .header.has-mobile-nav .mobile-only-cart-btn,
+  .header.has-mobile-nav .mobile-nav-toggle-btn,
+  .admin-topbar.has-mobile-nav .theme-switch-btn,
+  .admin-topbar.has-mobile-nav .btn-notification-bell,
+  .admin-topbar.has-mobile-nav .mobile-nav-toggle-btn {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    padding: 0 !important;
+    border-radius: 10px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #1e293b !important;
+    font-size: 1rem !important;
+    line-height: 1 !important;
+    text-decoration: none !important;
+    box-shadow: none !important;
+    cursor: pointer;
+    flex-shrink: 0 !important;
+    transition: transform 0.15s ease, background-color 0.15s ease;
+  }
+
+  .header.has-mobile-nav .mobile-nav-toggle-btn,
+  .admin-topbar.has-mobile-nav .mobile-nav-toggle-btn {
+    background: #eef2ff !important;
+    border-color: #c7d2fe !important;
+    color: #4f46e5 !important;
+  }
+
+  .header.has-mobile-nav .mobile-nav-toggle-btn:active,
+  .admin-topbar.has-mobile-nav .mobile-nav-toggle-btn:active {
+    transform: scale(0.94);
+  }
+
+  /* Badge đính góc cho Giỏ hàng / Yêu thích / Thông báo trên Mobile Topbar */
+  .header.has-mobile-nav .header-actions .cart-icon .cart-badge,
+  .header.has-mobile-nav .mobile-only-cart-btn .mobile-cart-badge,
+  .header.has-mobile-nav .btn-notification-bell .notification-badge {
+    position: absolute !important;
+    top: -5px !important;
+    right: -5px !important;
+    min-width: 17px !important;
+    height: 17px !important;
+    padding: 0 4px !important;
+    border-radius: 999px !important;
+    font-size: 0.62rem !important;
+    font-weight: 800 !important;
+    line-height: 15px !important;
+    text-align: center !important;
+    border: 2px solid #ffffff !important;
+    margin: 0 !important;
+  }
+
+  .header.has-mobile-nav .header-actions .cart-icon .cart-badge,
+  .header.has-mobile-nav .mobile-only-cart-btn .mobile-cart-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .header.has-mobile-nav .mobile-only-cart-btn .mobile-cart-badge {
+    background: #4f46e5;
+    color: #ffffff;
+  }
+
+  /* Dark mode cho Topbar mobile buttons */
+  html.dark .header.has-mobile-nav .theme-switch-btn,
+  body.dark .header.has-mobile-nav .theme-switch-btn,
+  html.dark .header.has-mobile-nav .btn-notification-bell,
+  body.dark .header.has-mobile-nav .btn-notification-bell,
+  html.dark .header.has-mobile-nav .header-actions .cart-icon,
+  body.dark .header.has-mobile-nav .header-actions .cart-icon,
+  html.dark .header.has-mobile-nav .mobile-only-cart-btn,
+  body.dark .header.has-mobile-nav .mobile-only-cart-btn,
+  html.dark .admin-topbar.has-mobile-nav .theme-switch-btn,
+  body.dark .admin-topbar.has-mobile-nav .theme-switch-btn {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #f8fafc !important;
+  }
+
+  html.dark .header.has-mobile-nav .mobile-nav-toggle-btn,
+  body.dark .header.has-mobile-nav .mobile-nav-toggle-btn,
+  html.dark .admin-topbar.has-mobile-nav .mobile-nav-toggle-btn,
+  body.dark .admin-topbar.has-mobile-nav .mobile-nav-toggle-btn {
+    background: rgba(99, 102, 241, 0.2) !important;
+    border-color: rgba(129, 140, 248, 0.4) !important;
+    color: #a5b4fc !important;
+  }
+
+  html.dark .header.has-mobile-nav .cart-badge,
+  html.dark .header.has-mobile-nav .mobile-cart-badge,
+  html.dark .header.has-mobile-nav .notification-badge {
+    border-color: #0f172a !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .header.has-mobile-nav .brand-logo-container img,
+  .admin-topbar.has-mobile-nav .brand-logo-container img {
+    height: 26px !important;
+    max-height: 26px !important;
+  }
+  .admin-topbar.has-mobile-nav .admin-badge,
+  .admin-topbar.has-mobile-nav .seller-badge {
+    max-width: 82px;
+    font-size: 0.6rem !important;
+    padding: 2px 6px !important;
+  }
+  .header.has-mobile-nav .header-actions,
+  .header.has-mobile-nav .header-nav,
+  .admin-topbar.has-mobile-nav .admin-actions {
+    gap: 5px !important;
+  }
+  .header.has-mobile-nav .theme-switch-btn,
+  .header.has-mobile-nav .btn-notification-bell,
+  .header.has-mobile-nav .header-actions .cart-icon,
+  .header.has-mobile-nav .mobile-only-cart-btn,
+  .header.has-mobile-nav .mobile-nav-toggle-btn,
+  .admin-topbar.has-mobile-nav .theme-switch-btn,
+  .admin-topbar.has-mobile-nav .mobile-nav-toggle-btn {
+    width: 33px !important;
+    height: 33px !important;
+    min-width: 33px !important;
+    border-radius: 9px !important;
+  }
+}
