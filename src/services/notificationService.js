@@ -208,10 +208,15 @@ export const notificationService = {
                 message = `Đơn hàng #${orderCode} của bạn đã được đối tác người bán duyệt và đang tiến hành đóng gói.`;
                 break;
             case 'Đang giao':
-            case 'Đang vận chuyển':
+            case 'Đang giao hàng':
+            case 'Đang vận chuyển': {
                 title = '🚚 Đơn hàng đang được vận chuyển';
-                message = `Đơn hàng #${orderCode} đã được bàn giao cho đơn vị chuyển phát và đang trên đường giao tới bạn.`;
+                const shippingDetail = order.shippingCarrier || order.trackingCode
+                    ? ` qua ${order.shippingCarrier || 'đối tác vận chuyển'}${order.trackingCode ? ` (Mã vận đơn: ${order.trackingCode})` : ''}`
+                    : ' cho đơn vị chuyển phát';
+                message = `Đơn hàng #${orderCode} đã được bàn giao${shippingDetail} và đang trên đường giao tới bạn.`;
                 break;
+            }
             case 'Hoàn thành':
             case 'Đã giao':
                 title = '🎉 Giao hàng thành công!';

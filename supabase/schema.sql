@@ -107,6 +107,9 @@ CREATE TABLE IF NOT EXISTS public.orders (
     "subTotal" NUMERIC(12, 0) NOT NULL DEFAULT 0,
     "totalAmount" NUMERIC(12, 0) NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'Chờ xác nhận',
+    "shippingCarrier" TEXT DEFAULT '',
+    "trackingCode" TEXT DEFAULT '',
+    "shippedAt" TIMESTAMPTZ,
     items JSONB NOT NULL DEFAULT '[]'::jsonb,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -344,6 +347,15 @@ BEGIN
        OR NEW."couponCode" IS DISTINCT FROM OLD."couponCode"
        OR NEW.items IS DISTINCT FROM OLD.items THEN
         RAISE EXCEPTION 'Không thể chỉnh sửa thông tin giá trị hoặc sản phẩm của đơn hàng.';
+    END IF;
+
+    -- Chỉ Admin hoặc Seller mới được gắn/cập nhật đơn vị vận chuyển và mã vận đơn
+    IF NOT public.is_seller() AND (
+        NEW."shippingCarrier" IS DISTINCT FROM OLD."shippingCarrier"
+        OR NEW."trackingCode" IS DISTINCT FROM OLD."trackingCode"
+        OR NEW."shippedAt" IS DISTINCT FROM OLD."shippedAt"
+    ) THEN
+        RAISE EXCEPTION 'Chỉ người bán hoặc quản trị viên mới được cập nhật thông tin vận chuyển.';
     END IF;
 
     RETURN NEW;

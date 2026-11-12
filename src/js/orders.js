@@ -2,7 +2,8 @@ import { orderService } from '../services/orderService.js';
 import { authService } from '../services/authService.js';
 import { productService } from '../services/productService.js';
 import { reviewService } from '../services/reviewService.js';
-import { formatPrice } from '../utils/format.js';
+import { formatPrice, escapeHtml } from '../utils/format.js';
+import { formatShippingSummary } from '../utils/shipping.js';
 import { initChatbot } from './chatWidget.js';
 import { initNotificationBell } from './notificationBell.js';
 import './themeToggle.js';
@@ -353,6 +354,11 @@ function renderInvoiceSheet(order) {
         `;
     }).join('');
 
+    const shipping = formatShippingSummary(order);
+    const shippingInvoiceText = shipping.hasShipping
+        ? `${escapeHtml(shipping.carrier)}${shipping.trackingCode ? ` (Mã vận đơn: ${escapeHtml(shipping.trackingCode)})` : ''}`
+        : 'Đang chờ bàn giao đơn vị vận chuyển';
+
     invoiceSheet.innerHTML = `
         <!-- HEADER CỬA HÀNG -->
         <div class="inv-top-header">
@@ -380,6 +386,7 @@ function renderInvoiceSheet(order) {
             <div class="inv-cust-col">
                 <p><strong>Địa chỉ giao:</strong> ${order.receiverAddress || 'Nhận tại quầy'}</p>
                 <p><strong>Phương thức:</strong> ${paymentLabel}</p>
+                <p><strong>Vận chuyển:</strong> ${shippingInvoiceText}</p>
                 <p><strong>Ghi chú đơn:</strong> ${order.receiverNote || 'Không có'}</p>
             </div>
         </div>
@@ -550,7 +557,12 @@ function renderOrders(orders) {
     if (emptyOrders) emptyOrders.style.display = 'none';
 
     // Sắp xếp đơn hàng mới nhất lên đầu
-    const sorted = [...orders].reverse();
+    const sorted = [...orders].sort((a, b) => {
+        const timeA = new Date(a.createdAt || 0).getTime();
+        const timeB = new Date(b.createdAt || 0).getTime();
+        if (timeB !== timeA) return timeB - timeA;
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+    });
 
     ordersContainer.innerHTML = sorted.map(order => {
         const { statusClass, statusText } = getOrderStatusInfo(order);
@@ -561,6 +573,18 @@ function renderOrders(orders) {
         const isCompleted = order.status === 'Hoàn thành' || (order.status || '').toLowerCase().includes('hoàn thành');
         const isCancelled = (order.status || '').toLowerCase().includes('hủy');
         const isPendingCod = !isVietQr && (order.status || '').toLowerCase().includes('chờ xác nhận');
+        const shipping = formatShippingSummary(order);
+        const shippingBoxHtml = shipping.hasShipping ? `
+                        <div class="info-box" style="grid-column: 1 / -1; background: rgba(2, 132, 199, 0.06); border: 1px dashed rgba(2, 132, 199, 0.35); border-radius: 8px; padding: 10px 12px;">
+                            <strong>🚚 Đơn vị vận chuyển:</strong>
+                            <span style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <span style="font-weight: 700; color: #0284c7;">${escapeHtml(shipping.carrier)}</span>
+                                ${shipping.trackingCode ? `
+                                    <span>&bull; Mã vận đơn: <strong style="font-family: monospace; color: #0f172a;">${escapeHtml(shipping.trackingCode)}</strong></span>
+                                    <button type="button" class="btn-copy-tracking" data-tracking="${escapeHtml(shipping.trackingCode)}" style="border: 1px solid #cbd5e1; background: #fff; color: #334155; border-radius: 6px; padding: 2px 8px; font-size: 0.78rem; cursor: pointer; font-weight: 600;">📋 Sao chép</button>
+                                ` : ''}
+                            </span>
+                        </div>` : '';
 
         let actionsHtml = `
             <button type="button" class="btn-view-invoice" data-order-id="${order.id}">
@@ -638,6 +662,7 @@ function renderOrders(orders) {
                             <strong>Địa chỉ giao:</strong>
                             <span>${order.receiverAddress}</span>
                         </div>
+                        ${shippingBoxHtml}
                     </div>
                 </div>
 
@@ -735,6 +760,23 @@ if (searchOrderInput) {
 // 7. Xử lý sự kiện "Xác nhận đã nhận hàng" và "Hủy đơn" từ phía người dùng
 if (ordersContainer) {
     ordersContainer.addEventListener('click', async (e) => {
+        // Nút: Sao chép mã vận đơn
+        const btnCopyTracking = e.target.closest('.btn-copy-tracking');
+        if (btnCopyTracking) {
+            const code = btnCopyTracking.dataset.tracking || '';
+            if (code) {
+                try {
+                    await navigator.clipboard.writeText(code);
+                    const oldText = btnCopyTracking.textContent;
+                    btnCopyTracking.textContent = '✓ Đã chép';
+                    setTimeout(() => { btnCopyTracking.textContent = oldText; }, 1500);
+                } catch {
+                    alert(`Mã vận đơn của bạn: ${code}`);
+                }
+            }
+            return;
+        }
+
         // Nút: Xác nhận đã nhận hàng
         const btnConfirm = e.target.closest('.btn-confirm-received');
         if (btnConfirm) {

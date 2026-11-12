@@ -4,11 +4,12 @@ import { orderService } from '../services/orderService.js';
 import { authService } from '../services/authService.js';
 import api from '../api/client.js';
 import { storage } from '../utils/storage.js';
-import { formatPrice } from '../utils/format.js';
+import { formatPrice, escapeHtml } from '../utils/format.js';
 import { paginate, renderPagination, DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../utils/pagination.js';
 import { excelExportUtil } from '../utils/excelExport.js';
 import { excelImportUtil } from '../utils/excelImport.js';
 import { setupImageUploader } from '../utils/imageUpload.js';
+import { openDispatchModal, formatShippingSummary } from '../utils/shipping.js';
 import './themeToggle.js';
 
 // 1. KIỂM TRA QUYỀN TRUY CẬP NGƯỜI BÁN (SELLER)
@@ -120,6 +121,7 @@ const sellerDetailReceiverName = document.querySelector('#sellerDetailReceiverNa
 const sellerDetailReceiverPhone = document.querySelector('#sellerDetailReceiverPhone');
 const sellerDetailReceiverAddress = document.querySelector('#sellerDetailReceiverAddress');
 const sellerDetailPaymentMethod = document.querySelector('#sellerDetailPaymentMethod');
+const sellerDetailShippingInfo = document.querySelector('#sellerDetailShippingInfo');
 const sellerDetailOrderDate = document.querySelector('#sellerDetailOrderDate');
 const sellerDetailOrderItemsList = document.querySelector('#sellerDetailOrderItemsList');
 const sellerDetailOrderTotal = document.querySelector('#sellerDetailOrderTotal');
@@ -670,6 +672,10 @@ function renderSellerOrders(orders) {
         }
 
         const dateStr = order.createdAt ? new Date(order.createdAt).toLocaleDateString('vi-VN') : '--';
+        const shipping = formatShippingSummary(order);
+        const shippingTagHtml = shipping.hasShipping
+            ? `<div style="font-size: 0.72rem; color: #0284c7; font-weight: 600; margin-top: 4px;">🚚 ${escapeHtml(shipping.carrier)}${shipping.trackingCode ? ` &bull; <span style="font-family: monospace;">${escapeHtml(shipping.trackingCode)}</span>` : ''}</div>`
+            : '';
 
         return `
             <tr>
@@ -680,7 +686,10 @@ function renderSellerOrders(orders) {
                 </td>
                 <td>${itemsSummaryHtml}</td>
                 <td><strong class="admin-price-text" style="color: #059669;">${formatPrice(shopTotal)}</strong></td>
-                <td><span class="order-status-pill ${statusBadgeClass}">${order.status}</span></td>
+                <td>
+                    <span class="order-status-pill ${statusBadgeClass}">${order.status}</span>
+                    ${shippingTagHtml}
+                </td>
                 <td><span style="font-size: 0.85rem; font-weight: 600;">${order.paymentMethod || 'COD'}</span></td>
                 <td><span style="font-size: 0.82rem; color: #64748b;">${dateStr}</span></td>
                 <td style="text-align: right;">
@@ -744,6 +753,12 @@ if (sellerOrdersTableBody) {
             sellerDetailReceiverPhone.textContent = order.receiverPhone || '--';
             sellerDetailReceiverAddress.textContent = order.receiverAddress || '--';
             sellerDetailPaymentMethod.textContent = `${order.paymentMethod || 'COD'} ${order.isPaid ? '(Đã thanh toán)' : ''}`;
+            if (sellerDetailShippingInfo) {
+                const shipping = formatShippingSummary(order);
+                sellerDetailShippingInfo.textContent = shipping.hasShipping
+                    ? `${shipping.carrier}${shipping.trackingCode ? ` — Mã vận đơn: ${shipping.trackingCode}` : ''}`
+                    : 'Chưa bàn giao đơn vị vận chuyển';
+            }
             sellerDetailOrderDate.textContent = order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '--';
 
             const shopItems = (order.items || []).filter(it => Number(it.sellerId) === Number(currentUser.id));
@@ -774,10 +789,27 @@ if (sellerOrdersTableBody) {
         if (btnAdvance) {
             const orderId = btnAdvance.dataset.id;
             const nextStatus = btnAdvance.dataset.next;
-            if (confirm(`Chuyển trạng thái đơn hàng #${orderId} sang "${nextStatus}"?`)) {
+            const o = myOrders.find(item => Number(item.id) === Number(orderId));
+
+            if (nextStatus === 'Đang giao hàng') {
+                const dispatch = await openDispatchModal(o || { id: orderId });
+                if (!dispatch) return;
+                try {
+                    const updated = await orderService.dispatchOrder(orderId, dispatch);
+                    if (o) Object.assign(o, updated, dispatch, { status: nextStatus });
+                    applySellerOrdersFilter(false);
+                    updateShopStats();
+                    alert(`✓ Đã bàn giao đơn #${o?.orderCode || orderId} cho ${dispatch.shippingCarrier} (Mã vận đơn: ${dispatch.trackingCode})!`);
+                } catch (err) {
+                    console.error('Lỗi bàn giao đơn hàng:', err);
+                    alert('Không thể bàn giao đơn hàng cho đơn vị vận chuyển.');
+                }
+                return;
+            }
+
+            if (confirm(`Chuyển trạng thái đơn hàng #${o?.orderCode || orderId} sang "${nextStatus}"?`)) {
                 try {
                     await orderService.updateStatus(orderId, nextStatus);
-                    const o = myOrders.find(item => Number(item.id) === Number(orderId));
                     if (o) o.status = nextStatus;
                     applySellerOrdersFilter(false);
                     updateShopStats();

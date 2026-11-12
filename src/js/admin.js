@@ -9,6 +9,7 @@ import { paginate, renderPagination, DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from
 import { excelExportUtil } from '../utils/excelExport.js';
 import { excelImportUtil } from '../utils/excelImport.js';
 import { setupImageUploader } from '../utils/imageUpload.js';
+import { openDispatchModal, formatShippingSummary } from '../utils/shipping.js';
 import './themeToggle.js';
 
 // 1. Kiểm tra quyền truy cập Quản trị viên
@@ -164,6 +165,7 @@ const detailReceiverName = document.querySelector('#detailReceiverName');
 const detailReceiverPhone = document.querySelector('#detailReceiverPhone');
 const detailReceiverAddress = document.querySelector('#detailReceiverAddress');
 const detailPaymentMethod = document.querySelector('#detailPaymentMethod');
+const detailShippingInfo = document.querySelector('#detailShippingInfo');
 const detailOrderDate = document.querySelector('#detailOrderDate');
 const detailOrderItemsList = document.querySelector('#detailOrderItemsList');
 const detailOrderTotal = document.querySelector('#detailOrderTotal');
@@ -804,6 +806,10 @@ function renderOrders(orders) {
         `).join('');
 
         const isCompleted = order.status === 'Hoàn thành' || (order.status || '').toLowerCase().includes('hoàn thành');
+        const shipping = formatShippingSummary(order);
+        const shippingTagHtml = shipping.hasShipping
+            ? `<div style="font-size: 0.74rem; color: #0284c7; font-weight: 600; margin-top: 4px;">🚚 ${escapeHtml(shipping.carrier)}${shipping.trackingCode ? ` &bull; <span style="font-family: monospace;">${escapeHtml(shipping.trackingCode)}</span>` : ''}</div>`
+            : '';
         const actionCompleteHtml = isCompleted 
             ? `<span class="badge-order-complete-done">✓ Hoàn thành</span>`
             : `<button type="button" class="btn-action complete btn-complete-order" data-order-id="${order.id}" data-order-code="${order.orderCode}" title="Xác nhận hoàn thành đơn hàng">✓ Hoàn thành</button>`;
@@ -827,6 +833,7 @@ function renderOrders(orders) {
                     <select class="select-status" data-order-id="${order.id}">
                         ${optionsHtml}
                     </select>
+                    ${shippingTagHtml}
                 </td>
                 <td style="text-align: right;">
                     <div class="action-btns" style="justify-content: flex-end;">
@@ -889,16 +896,31 @@ if (ordersTableBody) {
         if (e.target.classList.contains('select-status')) {
             const orderId = e.target.dataset.orderId;
             const newStatus = e.target.value;
+            const order = allOrders.find(o => Number(o.id) === Number(orderId));
 
             try {
+                if (newStatus === 'Đang giao hàng' && !order?.trackingCode) {
+                    const dispatch = await openDispatchModal(order || { id: orderId });
+                    if (!dispatch) {
+                        e.target.value = order?.status || 'Chờ xác nhận (COD)';
+                        return;
+                    }
+                    const updated = await orderService.dispatchOrder(orderId, dispatch);
+                    if (order) Object.assign(order, updated, dispatch, { status: newStatus });
+                    applyOrdersFilter(false);
+                    updateStats();
+                    alert(`✓ Đã bàn giao đơn #${order?.orderCode} cho ${dispatch.shippingCarrier} (Mã vận đơn: ${dispatch.trackingCode})!`);
+                    return;
+                }
+
                 await orderService.updateStatus(orderId, newStatus);
-                const order = allOrders.find(o => Number(o.id) === Number(orderId));
                 if (order) order.status = newStatus;
                 applyOrdersFilter(false);
                 updateStats();
                 alert(`✓ Đã cập nhật trạng thái đơn hàng #${order?.orderCode} thành: "${newStatus}"`);
             } catch (err) {
                 console.error('Lỗi khi cập nhật trạng thái đơn:', err);
+                if (order) e.target.value = order.status;
                 alert('Không thể cập nhật trạng thái đơn hàng.');
             }
         }
@@ -918,6 +940,12 @@ if (ordersTableBody) {
             detailReceiverPhone.textContent = order.receiverPhone;
             detailReceiverAddress.textContent = order.receiverAddress;
             detailPaymentMethod.textContent = order.paymentMethod === 'VIETQR' ? 'Chuyển khoản VietQR' : 'Thanh toán khi nhận hàng (COD)';
+            if (detailShippingInfo) {
+                const shipping = formatShippingSummary(order);
+                detailShippingInfo.textContent = shipping.hasShipping
+                    ? `${shipping.carrier}${shipping.trackingCode ? ` — Mã vận đơn: ${shipping.trackingCode}` : ''}`
+                    : 'Chưa bàn giao đơn vị vận chuyển';
+            }
             detailOrderDate.textContent = new Date(order.createdAt).toLocaleString('vi-VN');
             detailOrderTotal.textContent = formatPrice(order.totalAmount);
 

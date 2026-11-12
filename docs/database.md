@@ -312,7 +312,10 @@ Lưu thông tin đơn hàng và danh sách sản phẩm mua dưới dạng `JSON
 | `shippingFee` | `NUMERIC` | `DEFAULT 0` | Phí vận chuyển |
 | `subTotal` | `NUMERIC` | `DEFAULT 0` | Tạm tính trước giảm giá |
 | `totalAmount` | `NUMERIC` | `NOT NULL` | Tổng tiền thanh toán cuối |
-| `status` | `TEXT` | `DEFAULT 'pending'` | `pending` \| `confirmed` \| `shipping` \| `completed` \| `cancelled` |
+| `status` | `TEXT` | `DEFAULT 'Chờ xác nhận'` | `Chờ xác nhận (COD)` \| `Đang xử lý` \| `Đang giao hàng` \| `Hoàn thành` \| `Đã hủy` |
+| `shippingCarrier` | `TEXT` | `DEFAULT ''` | Đơn vị vận chuyển bàn giao (`GHN`, `GHTK`, `Viettel Post`, `Giao nội thành 2H`) |
+| `trackingCode` | `TEXT` | `DEFAULT ''` | Mã vận đơn để khách hàng và admin tra cứu |
+| `shippedAt` | `TIMESTAMPTZ` | `Nullable` | Thời điểm bàn giao cho đơn vị vận chuyển |
 | `items` | `JSONB` | `DEFAULT '[]'::jsonb` | Mảng các sản phẩm (`productId`, `name`, `price`, `quantity`, `image`, `sellerId`) |
 | `createdAt` | `TIMESTAMPTZ` | `DEFAULT now()` | Thời gian đặt hàng |
 

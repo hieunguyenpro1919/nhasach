@@ -40,14 +40,35 @@ export const orderService = {
         return response.data;
     },
 
-    async updateStatus(orderId, status) {
+    async updateStatus(orderId, status, extraFields = {}) {
+        const payload = { status, ...extraFields };
         let updatedOrder;
         if (isSupabaseEnabled) {
-            updatedOrder = unwrap(
-                await supabase.from('orders').update({ status }).eq('id', Number(orderId)).select().single()
-            );
+            const res = await supabase
+                .from('orders')
+                .update(payload)
+                .eq('id', Number(orderId))
+                .select()
+                .single();
+
+            if (res.error) {
+                const msg = String(res.error.message || '');
+                const hasShippingPayload = 'shippingCarrier' in extraFields || 'trackingCode' in extraFields || 'shippedAt' in extraFields;
+                const isMissingColumn = res.error.code === 'PGRST204' || res.error.code === '42703' || msg.includes('shippingCarrier') || msg.includes('trackingCode');
+                if (hasShippingPayload && isMissingColumn) {
+                    console.warn('Chưa có cột shippingCarrier/trackingCode trên Supabase, fallback cập nhật status:', msg);
+                    updatedOrder = unwrap(
+                        await supabase.from('orders').update({ status }).eq('id', Number(orderId)).select().single()
+                    );
+                    Object.assign(updatedOrder, extraFields);
+                } else {
+                    throw new Error(res.error.message || 'Không thể cập nhật đơn hàng.');
+                }
+            } else {
+                updatedOrder = res.data;
+            }
         } else {
-            const response = await api.patch(`/orders/${orderId}`, { status });
+            const response = await api.patch(`/orders/${orderId}`, payload);
             updatedOrder = response.data;
         }
 
@@ -59,6 +80,14 @@ export const orderService = {
             console.warn('Lỗi gửi thông báo đổi trạng thái đơn:', e);
         }
         return updatedOrder;
+    },
+
+    async dispatchOrder(orderId, { shippingCarrier, trackingCode, status = 'Đang giao hàng' }) {
+        return this.updateStatus(orderId, status, {
+            shippingCarrier: String(shippingCarrier || '').trim(),
+            trackingCode: String(trackingCode || '').trim(),
+            shippedAt: new Date().toISOString()
+        });
     },
 
     async deleteOrder(orderId) {
