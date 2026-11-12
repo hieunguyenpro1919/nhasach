@@ -258,7 +258,7 @@ if (orderReviewForm) {
 }
 
 // 1. Đồng bộ thông tin người dùng
-const currentUser = authService.getCurrentUser();
+let currentUser = authService.getCurrentUser();
 const userAvatarOrders = document.querySelector('#userAvatarOrders');
 if (currentUser && userNameText) {
     userNameText.textContent = currentUser.name || currentUser.email;
@@ -665,6 +665,25 @@ async function loadOrders() {
         if (loading) loading.style.display = 'block';
         if (errorEl) errorEl.style.display = 'none';
 
+        currentUser = await authService.syncSession();
+        if (currentUser && userNameText) {
+            userNameText.textContent = currentUser.name || currentUser.email;
+        }
+
+        if (!currentUser) {
+            if (loading) loading.style.display = 'none';
+            allUserOrders = [];
+            if (ordersContainer) ordersContainer.innerHTML = '';
+            if (emptyOrders) {
+                emptyOrders.style.display = 'block';
+                const p = emptyOrders.querySelector('p');
+                if (p) {
+                    p.innerHTML = 'Vui lòng <a href="./login.html" style="color: var(--primary); font-weight: 700;">đăng nhập</a> để xem toàn bộ lịch sử đơn hàng của bạn.';
+                }
+            }
+            return;
+        }
+
         const [orders, reviews] = await Promise.all([
             orderService.getAllOrders(),
             reviewService.getAll().catch(() => [])
@@ -673,22 +692,11 @@ async function loadOrders() {
 
         if (loading) loading.style.display = 'none';
 
-        // Lọc đơn hàng của người dùng hiện tại
-        if (currentUser) {
-            allUserOrders = orders.filter(o => 
-                (o.userId && Number(o.userId) === Number(currentUser.id)) ||
-                (o.userEmail && o.userEmail.toLowerCase() === currentUser.email?.toLowerCase()) ||
-                (o.receiverName && o.receiverName.toLowerCase() === currentUser.name?.toLowerCase())
-            );
-
-            // Nếu user chưa có đơn nào gắn id, hiển thị toàn bộ đơn để kiểm tra
-            if (allUserOrders.length === 0 && orders.length > 0) {
-                allUserOrders = orders;
-            }
-        } else {
-            // Khách chưa đăng nhập: hiển thị tất cả các đơn hàng vừa tạo trên hệ thống
-            allUserOrders = orders;
-        }
+        // Chỉ hiển thị đơn hàng thuộc về người dùng hiện tại (RLS trên Supabase cũng khóa sẵn theo userId)
+        allUserOrders = (orders || []).filter(o =>
+            (o.userId != null && Number(o.userId) === Number(currentUser.id)) ||
+            (o.userEmail && currentUser.email && o.userEmail.toLowerCase() === currentUser.email.toLowerCase())
+        );
 
         const urlSearch = new URLSearchParams(window.location.search).get('search');
         if (urlSearch && urlSearch.trim()) {

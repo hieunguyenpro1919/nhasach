@@ -855,8 +855,16 @@ if (btnSellerLogout) {
 
 // 12. NẠP DỮ LIỆU BAN ĐẦU
 async function initSeller() {
-    renderShopBranding();
     try {
+        const verified = await authService.syncSession();
+        if (!verified || verified.role !== 'seller') {
+            alert('⚠️ Phiên Người Bán không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại!');
+            window.location.href = './login.html';
+            return;
+        }
+        currentUser = verified;
+        renderShopBranding();
+
         const [categories, books, orders] = await Promise.all([
             categoryService.getAll(),
             productService.getAll(),

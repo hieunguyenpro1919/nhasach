@@ -180,13 +180,13 @@ export const reviewService = {
      */
     async toggleLike(reviewId, userId) {
         try {
-            let review;
             if (isSupabaseEnabled) {
-                review = unwrap(await supabase.from('reviews').select('*').eq('id', Number(reviewId)).single());
-            } else {
-                const response = await api.get(`/reviews/${reviewId}`);
-                review = response.data;
+                return unwrap(await supabase.rpc('toggle_review_like', {
+                    p_review_id: Number(reviewId)
+                }));
             }
+            const response = await api.get(`/reviews/${reviewId}`);
+            const review = response.data;
             const likes = Array.isArray(review.likes) ? [...review.likes] : [];
             const uid = String(userId);
             const index = likes.findIndex(id => String(id) === uid);
@@ -197,9 +197,6 @@ export const reviewService = {
                 likes.push(userId);
             }
 
-            if (isSupabaseEnabled) {
-                return unwrap(await supabase.from('reviews').update({ likes }).eq('id', Number(reviewId)).select().single());
-            }
             const patchRes = await api.patch(`/reviews/${reviewId}`, { likes });
             return patchRes.data;
         } catch (error) {
@@ -215,13 +212,14 @@ export const reviewService = {
      */
     async addReply(reviewId, replyData) {
         try {
-            let review;
             if (isSupabaseEnabled) {
-                review = unwrap(await supabase.from('reviews').select('*').eq('id', Number(reviewId)).single());
-            } else {
-                const response = await api.get(`/reviews/${reviewId}`);
-                review = response.data;
+                return unwrap(await supabase.rpc('add_review_reply', {
+                    p_review_id: Number(reviewId),
+                    p_comment: String(replyData?.comment || '').trim()
+                }));
             }
+            const response = await api.get(`/reviews/${reviewId}`);
+            const review = response.data;
             const replies = Array.isArray(review.replies) ? [...review.replies] : [];
 
             const newReply = {
@@ -234,9 +232,6 @@ export const reviewService = {
             };
 
             replies.push(newReply);
-            if (isSupabaseEnabled) {
-                return unwrap(await supabase.from('reviews').update({ replies }).eq('id', Number(reviewId)).select().single());
-            }
             const patchRes = await api.patch(`/reviews/${reviewId}`, { replies });
             return patchRes.data;
         } catch (error) {

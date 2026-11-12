@@ -1,0 +1,693 @@
+-- =========================================================================
+-- MIGRATION: NÂNG CẤP SUPABASE AUTH (JWT) + BẢO MẬT RLS CHUẨN PRODUCTION
+-- Chạy toàn bộ script này trong Supabase Dashboard -> SQL Editor -> Run
+-- (An toàn để chạy nhiều lần trên DB đã có dữ liệu)
+-- =========================================================================
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- 1. Cột liên kết auth.users(id) và làm sạch cột mật khẩu cũ
+ALTER TABLE public.app_users
+    ADD COLUMN IF NOT EXISTS auth_uid UUID UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE public.app_users
+    ALTER COLUMN password_hash DROP NOT NULL,
+    ALTER COLUMN password_hash SET DEFAULT 'AUTH_MANAGED';
+
+UPDATE public.app_users
+SET password_hash = 'AUTH_MANAGED'
+WHERE password_hash IS NULL OR password_hash <> 'AUTH_MANAGED';
+
+-- Gỡ bỏ các RPC tự viết cũ (tránh bypass Supabase Auth hoặc đổi pass không xác thực)
+DROP FUNCTION IF EXISTS public.auth_login(TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.auth_register(TEXT, TEXT, TEXT, TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.auth_reset_password(TEXT, TEXT);
+
+-- 2. Hàm helper xác định user hiện tại & quyền từ JWT auth.uid()
+CREATE OR REPLACE FUNCTION public.current_app_user_id()
+RETURNS BIGINT
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+    SELECT id FROM public.app_users WHERE auth_uid = auth.uid() LIMIT 1;
+$$;
+
+CREATE OR REPLACE FUNCTION public.current_app_role()
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+    SELECT role FROM public.app_users WHERE auth_uid = auth.uid() LIMIT 1;
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+    SELECT COALESCE(public.current_app_role() = 'admin', FALSE);
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_seller()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+    SELECT COALESCE(public.current_app_role() = 'seller', FALSE);
+$$;
+
+-- 3. Trigger tự động đồng bộ user từ auth.users -> public.app_users khi đăng ký mới
+--    Chống leo thang đặc quyền: chỉ chấp nhận role 'customer' hoặc 'seller' khi tự đăng ký
+CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_meta JSONB := COALESCE(NEW.raw_user_meta_data, '{}'::jsonb);
+    v_req_role TEXT := LOWER(TRIM(COALESCE(v_meta->>'role', 'customer')));
+    v_safe_role TEXT := CASE WHEN v_req_role = 'seller' THEN 'seller' ELSE 'customer' END;
+    v_name TEXT := COALESCE(NULLIF(TRIM(v_meta->>'name'), ''), SPLIT_PART(NEW.email, '@', 1));
+BEGIN
+    -- Nếu email đã tồn tại trong app_users (từ seed cũ), liên kết auth_uid
+    UPDATE public.app_users
+    SET auth_uid = NEW.id
+    WHERE LOWER(email) = LOWER(NEW.email)
+      AND auth_uid IS NULL;
+
+    IF NOT FOUND THEN
+        INSERT INTO public.app_users (
+            auth_uid, name, email, password_hash, role,
+            "shopName", "shopPhone", "shopAddress",
+            "isLocked", status, "shopStatus"
+        ) VALUES (
+            NEW.id,
+            v_name,
+            LOWER(NEW.email),
+            'AUTH_MANAGED',
+            v_safe_role,
+            COALESCE(TRIM(v_meta->>'shopName'), ''),
+            COALESCE(TRIM(v_meta->>'shopPhone'), ''),
+            COALESCE(TRIM(v_meta->>'shopAddress'), ''),
+            FALSE,
+            'active',
+            'active'
+        )
+        ON CONFLICT (email) DO UPDATE
+        SET auth_uid = EXCLUDED.auth_uid;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_new_auth_user();
+
+-- 4. Trigger chống user thường tự nâng quyền lên admin/seller hoặc tự mở khóa tài khoản
+CREATE OR REPLACE FUNCTION public.guard_app_user_update()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+BEGIN
+    -- Cho phép service_role (auth.uid() IS NULL) hoặc Admin thực sự
+    IF auth.uid() IS NULL OR public.is_admin() THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.id IS DISTINCT FROM OLD.id
+       OR NEW.auth_uid IS DISTINCT FROM OLD.auth_uid
+       OR NEW.role IS DISTINCT FROM OLD.role
+       OR NEW."isLocked" IS DISTINCT FROM OLD."isLocked"
+       OR NEW.status IS DISTINCT FROM OLD.status
+       OR NEW."shopStatus" IS DISTINCT FROM OLD."shopStatus" THEN
+        RAISE EXCEPTION 'Không có quyền thay đổi vai trò hoặc trạng thái khóa tài khoản.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_guard_app_user_update ON public.app_users;
+CREATE TRIGGER trg_guard_app_user_update
+    BEFORE UPDATE ON public.app_users
+    FOR EACH ROW
+    EXECUTE FUNCTION public.guard_app_user_update();
+
+-- 5. Trigger bảo vệ đơn hàng: người mua / người bán không thể sửa giá tiền hoặc danh sách món
+CREATE OR REPLACE FUNCTION public.guard_order_update()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+BEGIN
+    IF auth.uid() IS NULL OR public.is_admin() THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.id IS DISTINCT FROM OLD.id
+       OR NEW."orderCode" IS DISTINCT FROM OLD."orderCode"
+       OR NEW."userId" IS DISTINCT FROM OLD."userId"
+       OR NEW."subTotal" IS DISTINCT FROM OLD."subTotal"
+       OR NEW."shippingFee" IS DISTINCT FROM OLD."shippingFee"
+       OR NEW."discountAmount" IS DISTINCT FROM OLD."discountAmount"
+       OR NEW."totalAmount" IS DISTINCT FROM OLD."totalAmount"
+       OR NEW."couponCode" IS DISTINCT FROM OLD."couponCode"
+       OR NEW.items IS DISTINCT FROM OLD.items THEN
+        RAISE EXCEPTION 'Không thể chỉnh sửa thông tin giá trị hoặc sản phẩm của đơn hàng.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_guard_order_update ON public.orders;
+CREATE TRIGGER trg_guard_order_update
+    BEFORE UPDATE ON public.orders
+    FOR EACH ROW
+    EXECUTE FUNCTION public.guard_order_update();
+
+-- 6. Làm chặt lại place_order: gắn userId từ JWT thật (chống giả mạo userId & phí ship âm)
+CREATE OR REPLACE FUNCTION public.place_order(p_order JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_user_id BIGINT := CASE WHEN auth.uid() IS NOT NULL THEN public.current_app_user_id() ELSE NULL END;
+    v_user public.app_users%ROWTYPE;
+    v_sale public.sale_config%ROWTYPE;
+    v_sale_active BOOLEAN := FALSE;
+    v_item JSONB;
+    v_prod public.products%ROWTYPE;
+    v_qty INTEGER;
+    v_unit_price NUMERIC(12,0);
+    v_sub_total NUMERIC(12,0) := 0;
+    v_shipping_fee NUMERIC(12,0) := GREATEST(0, COALESCE((p_order->>'shippingFee')::NUMERIC, 0));
+    v_coupon_code TEXT := UPPER(TRIM(COALESCE(p_order->>'couponCode', '')));
+    v_coupon public.coupons%ROWTYPE;
+    v_discount NUMERIC(12,0) := 0;
+    v_total NUMERIC(12,0) := 0;
+    v_items_enriched JSONB := '[]'::jsonb;
+    v_order_row public.orders%ROWTYPE;
+    v_order_code TEXT := COALESCE(NULLIF(p_order->>'orderCode', ''), 'DH' || FLOOR(100000 + RANDOM() * 899999)::TEXT);
+BEGIN
+    IF jsonb_array_length(COALESCE(p_order->'items', '[]'::jsonb)) = 0 THEN
+        RAISE EXCEPTION 'Giỏ hàng trống, không thể tạo đơn hàng.';
+    END IF;
+
+    IF v_user_id IS NOT NULL THEN
+        SELECT * INTO v_user FROM public.app_users WHERE id = v_user_id;
+        IF FOUND THEN
+            IF v_user.role = 'admin' THEN
+                RAISE EXCEPTION 'Tài khoản Quản trị viên không thể đặt mua hàng.';
+            END IF;
+            IF v_user."isLocked" = TRUE OR v_user.status = 'locked' THEN
+                RAISE EXCEPTION 'Tài khoản của bạn đang bị khóa.';
+            END IF;
+        END IF;
+    END IF;
+
+    SELECT * INTO v_sale FROM public.sale_config WHERE id = 1 LIMIT 1;
+    IF FOUND AND v_sale."isActive" = TRUE THEN
+        IF (v_sale."startTime" IS NULL OR NOW() >= v_sale."startTime")
+           AND (v_sale."endTime" IS NULL OR NOW() <= v_sale."endTime") THEN
+            v_sale_active := TRUE;
+        END IF;
+    END IF;
+
+    FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(p_order->'items', '[]'::jsonb))
+    LOOP
+        v_qty := GREATEST(1, COALESCE((v_item->>'quantity')::INTEGER, 1));
+        SELECT * INTO v_prod
+        FROM public.products
+        WHERE id = (v_item->>'id')::BIGINT
+        FOR UPDATE;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Sản phẩm #% không tồn tại.', (v_item->>'id');
+        END IF;
+
+        IF v_user_id IS NOT NULL AND v_user.role = 'seller' AND v_prod."sellerId" = v_user_id THEN
+            RAISE EXCEPTION 'Bạn không thể tự đặt mua sản phẩm "%" của chính shop mình.', v_prod.name;
+        END IF;
+
+        IF v_prod.stock < v_qty THEN
+            RAISE EXCEPTION 'Sách "%" chỉ còn % cuốn trong kho.', v_prod.name, v_prod.stock;
+        END IF;
+
+        IF v_sale_active AND v_prod."onSale" = TRUE AND v_prod."discountPercent" > 0 THEN
+            v_unit_price := ROUND(v_prod.price * (1 - v_prod."discountPercent" / 100.0));
+        ELSE
+            v_unit_price := v_prod.price;
+        END IF;
+
+        v_sub_total := v_sub_total + (v_unit_price * v_qty);
+
+        UPDATE public.products
+        SET stock = stock - v_qty,
+            "soldCount" = "soldCount" + v_qty
+        WHERE id = v_prod.id;
+
+        v_items_enriched := v_items_enriched || jsonb_build_array(
+            v_item || jsonb_build_object(
+                'id', v_prod.id,
+                'name', v_prod.name,
+                'price', v_unit_price,
+                'quantity', v_qty,
+                'image', COALESCE(NULLIF(v_item->>'image', ''), v_prod.image),
+                'sellerId', v_prod."sellerId",
+                'sellerName', v_prod."sellerName"
+            )
+        );
+    END LOOP;
+
+    IF v_coupon_code <> '' THEN
+        SELECT * INTO v_coupon
+        FROM public.coupons
+        WHERE UPPER(code) = v_coupon_code
+        FOR UPDATE;
+
+        IF NOT FOUND OR v_coupon.active = FALSE THEN
+            RAISE EXCEPTION 'Mã giảm giá "%" không hợp lệ hoặc đã ngừng hoạt động.', v_coupon_code;
+        END IF;
+        IF v_coupon."startsAt" IS NOT NULL AND NOW() < v_coupon."startsAt" THEN
+            RAISE EXCEPTION 'Mã giảm giá "%" chưa tới thời gian áp dụng.', v_coupon_code;
+        END IF;
+        IF v_coupon."expiresAt" IS NOT NULL AND NOW() > v_coupon."expiresAt" THEN
+            RAISE EXCEPTION 'Mã giảm giá "%" đã hết hạn sử dụng.', v_coupon_code;
+        END IF;
+        IF COALESCE(v_coupon."usageLimit", 0) > 0 AND v_coupon."usedCount" >= v_coupon."usageLimit" THEN
+            RAISE EXCEPTION 'Mã giảm giá "%" đã hết lượt sử dụng.', v_coupon_code;
+        END IF;
+        IF v_sub_total < COALESCE(v_coupon."minOrderValue", 0) THEN
+            RAISE EXCEPTION 'Đơn hàng chưa đạt giá trị tối thiểu cho mã "%".', v_coupon_code;
+        END IF;
+
+        IF v_coupon."discountType" = 'percent' THEN
+            v_discount := ROUND(v_sub_total * (v_coupon."discountValue" / 100.0));
+            IF COALESCE(v_coupon."maxDiscount", 0) > 0 AND v_discount > v_coupon."maxDiscount" THEN
+                v_discount := v_coupon."maxDiscount";
+            END IF;
+        ELSIF v_coupon."discountType" = 'fixed' THEN
+            v_discount := LEAST(v_coupon."discountValue", v_sub_total);
+        ELSIF v_coupon."discountType" = 'shipping' THEN
+            v_discount := LEAST(v_coupon."discountValue", GREATEST(v_shipping_fee, 0));
+        END IF;
+
+        UPDATE public.coupons SET "usedCount" = "usedCount" + 1 WHERE id = v_coupon.id;
+    END IF;
+
+    v_total := GREATEST(0, v_sub_total + v_shipping_fee - v_discount);
+
+    INSERT INTO public.orders (
+        "orderCode", "userId", "userEmail", "receiverName", "receiverPhone",
+        "receiverAddress", "receiverNote", "paymentMethod", "paymentStatus", "isPaid",
+        "couponCode", "discountAmount", "shippingFee", "subTotal", "totalAmount", status, items
+    ) VALUES (
+        v_order_code,
+        v_user_id,
+        COALESCE(v_user.email, COALESCE(p_order->>'userEmail', '')),
+        COALESCE(p_order->>'receiverName', p_order->>'customerName', 'Khách hàng'),
+        COALESCE(p_order->>'receiverPhone', p_order->>'customerPhone', ''),
+        COALESCE(p_order->>'receiverAddress', p_order->>'customerAddress', ''),
+        COALESCE(p_order->>'receiverNote', p_order->>'note', ''),
+        COALESCE(p_order->>'paymentMethod', 'cod'),
+        COALESCE(p_order->>'paymentStatus', 'unpaid'),
+        COALESCE((p_order->>'isPaid')::BOOLEAN, FALSE),
+        v_coupon_code,
+        v_discount,
+        v_shipping_fee,
+        v_sub_total,
+        v_total,
+        COALESCE(p_order->>'status', 'Chờ xác nhận'),
+        v_items_enriched
+    )
+    RETURNING * INTO v_order_row;
+
+    IF v_user_id IS NOT NULL THEN
+        INSERT INTO public.notifications ("userId", "orderId", title, message, type, read, link)
+        VALUES (
+            v_user_id,
+            v_order_row."orderCode",
+            '🎉 Đặt hàng thành công!',
+            'Đơn hàng #' || v_order_row."orderCode" || ' đã được khởi tạo thành công và đang chờ xác nhận.',
+            'order',
+            FALSE,
+            '/pages/orders.html?search=' || v_order_row."orderCode"
+        );
+    END IF;
+
+    RETURN to_jsonb(v_order_row);
+END;
+$$;
+
+-- 7. RPC an toàn cho Like / Reply đánh giá & Danh bạ chat nội bộ & Tra cứu đơn khách lẻ
+CREATE OR REPLACE FUNCTION public.toggle_review_like(p_review_id BIGINT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_uid BIGINT := public.current_app_user_id();
+    v_rev public.reviews%ROWTYPE;
+    v_likes JSONB;
+    v_exists BOOLEAN;
+BEGIN
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'Vui lòng đăng nhập để thích bình luận.';
+    END IF;
+
+    SELECT * INTO v_rev FROM public.reviews WHERE id = p_review_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Không tìm thấy đánh giá.';
+    END IF;
+
+    SELECT EXISTS (
+        SELECT 1 FROM jsonb_array_elements_text(COALESCE(v_rev.likes, '[]'::jsonb)) AS x
+        WHERE x = v_uid::TEXT
+    ) INTO v_exists;
+
+    IF v_exists THEN
+        SELECT COALESCE(jsonb_agg(el), '[]'::jsonb)
+        INTO v_likes
+        FROM jsonb_array_elements(COALESCE(v_rev.likes, '[]'::jsonb)) AS el
+        WHERE el::TEXT <> v_uid::TEXT AND el::TEXT <> ('"' || v_uid::TEXT || '"');
+    ELSE
+        v_likes := COALESCE(v_rev.likes, '[]'::jsonb) || to_jsonb(v_uid);
+    END IF;
+
+    UPDATE public.reviews SET likes = v_likes WHERE id = p_review_id RETURNING * INTO v_rev;
+    RETURN to_jsonb(v_rev);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.add_review_reply(p_review_id BIGINT, p_comment TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_uid BIGINT := public.current_app_user_id();
+    v_user public.app_users%ROWTYPE;
+    v_rev public.reviews%ROWTYPE;
+    v_clean_comment TEXT := TRIM(COALESCE(p_comment, ''));
+    v_reply JSONB;
+BEGIN
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'Vui lòng đăng nhập để trả lời bình luận.';
+    END IF;
+    IF v_clean_comment = '' THEN
+        RAISE EXCEPTION 'Nội dung trả lời không được để trống.';
+    END IF;
+
+    SELECT * INTO v_user FROM public.app_users WHERE id = v_uid;
+    SELECT * INTO v_rev FROM public.reviews WHERE id = p_review_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Không tìm thấy đánh giá.';
+    END IF;
+
+    v_reply := jsonb_build_object(
+        'id', (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+        'userId', v_user.id,
+        'userName', COALESCE(NULLIF(v_user.name, ''), 'Bạn đọc'),
+        'userAvatar', COALESCE(v_user.avatar, ''),
+        'comment', v_clean_comment,
+        'createdAt', NOW()
+    );
+
+    UPDATE public.reviews
+    SET replies = COALESCE(v_rev.replies, '[]'::jsonb) || jsonb_build_array(v_reply)
+    WHERE id = p_review_id
+    RETURNING * INTO v_rev;
+
+    RETURN to_jsonb(v_rev);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_chat_contacts()
+RETURNS TABLE (
+    id BIGINT,
+    name TEXT,
+    role TEXT,
+    avatar TEXT,
+    "shopName" TEXT
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_uid BIGINT := public.current_app_user_id();
+BEGIN
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'Vui lòng đăng nhập để sử dụng chat nội bộ.';
+    END IF;
+
+    RETURN QUERY
+    SELECT u.id, u.name, u.role, u.avatar, u."shopName"
+    FROM public.app_users u
+    WHERE u.id <> v_uid AND u."isLocked" = FALSE AND u.status <> 'locked'
+    ORDER BY u.id ASC;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.lookup_guest_order(p_order_code TEXT, p_phone TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_code TEXT := UPPER(TRIM(COALESCE(p_order_code, '')));
+    v_phone TEXT := REGEXP_REPLACE(COALESCE(p_phone, ''), '\D', '', 'g');
+    v_order public.orders%ROWTYPE;
+BEGIN
+    IF v_code = '' OR LENGTH(v_phone) < 8 THEN
+        RAISE EXCEPTION 'Vui lòng nhập đầy đủ mã đơn hàng và số điện thoại nhận hàng.';
+    END IF;
+
+    SELECT * INTO v_order
+    FROM public.orders
+    WHERE UPPER("orderCode") = v_code
+      AND REGEXP_REPLACE("receiverPhone", '\D', '', 'g') = v_phone
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN to_jsonb(v_order);
+END;
+$$;
+
+-- 8. Siết chặt Storage bucket 'uploads': chỉ người dùng đã đăng nhập mới được upload/sửa ảnh
+DROP POLICY IF EXISTS "Public read uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Public insert uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Public update uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Auth insert uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Auth update uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Auth delete uploads" ON storage.objects;
+
+CREATE POLICY "Public read uploads" ON storage.objects
+    FOR SELECT USING (bucket_id = 'uploads');
+
+CREATE POLICY "Auth insert uploads" ON storage.objects
+    FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'uploads');
+
+CREATE POLICY "Auth update uploads" ON storage.objects
+    FOR UPDATE TO authenticated
+    USING (bucket_id = 'uploads');
+
+CREATE POLICY "Auth delete uploads" ON storage.objects
+    FOR DELETE TO authenticated
+    USING (bucket_id = 'uploads' AND (owner = auth.uid() OR public.is_admin()));
+
+-- 9. Bật & Siết RLS chuẩn Production cho toàn bộ 11 bảng
+DO $$
+DECLARE
+    tbl TEXT;
+BEGIN
+    FOREACH tbl IN ARRAY ARRAY['categories','products','sale_config','coupons','orders','reviews','wishlist','notifications','chat_messages','menu','app_users']
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl);
+        EXECUTE format('DROP POLICY IF EXISTS "Allow all %s" ON public.%I', tbl, tbl);
+    END LOOP;
+END $$;
+
+-- 9.1 categories, menu, sale_config: công khai đọc, chỉ Admin sửa/xóa
+DROP POLICY IF EXISTS "Public read categories" ON public.categories;
+DROP POLICY IF EXISTS "Admin write categories" ON public.categories;
+CREATE POLICY "Public read categories" ON public.categories FOR SELECT USING (true);
+CREATE POLICY "Admin write categories" ON public.categories FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
+
+DROP POLICY IF EXISTS "Public read menu" ON public.menu;
+DROP POLICY IF EXISTS "Admin write menu" ON public.menu;
+CREATE POLICY "Public read menu" ON public.menu FOR SELECT USING (true);
+CREATE POLICY "Admin write menu" ON public.menu FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
+
+DROP POLICY IF EXISTS "Public read sale_config" ON public.sale_config;
+DROP POLICY IF EXISTS "Admin write sale_config" ON public.sale_config;
+CREATE POLICY "Public read sale_config" ON public.sale_config FOR SELECT USING (true);
+CREATE POLICY "Admin write sale_config" ON public.sale_config FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
+
+-- 9.2 coupons: chỉ đọc mã đang active (hoặc Admin đọc hết), chỉ Admin sửa/xóa
+DROP POLICY IF EXISTS "Read active coupons or admin" ON public.coupons;
+DROP POLICY IF EXISTS "Admin write coupons" ON public.coupons;
+CREATE POLICY "Read active coupons or admin" ON public.coupons FOR SELECT USING (active = TRUE OR public.is_admin());
+CREATE POLICY "Admin write coupons" ON public.coupons FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
+
+-- 9.3 products: công khai đọc; Seller chỉ thêm/sửa/xóa sách của chính shop mình; Admin toàn quyền
+DROP POLICY IF EXISTS "Public read products" ON public.products;
+DROP POLICY IF EXISTS "Seller or admin insert products" ON public.products;
+DROP POLICY IF EXISTS "Seller or admin update products" ON public.products;
+DROP POLICY IF EXISTS "Seller or admin delete products" ON public.products;
+CREATE POLICY "Public read products" ON public.products FOR SELECT USING (true);
+CREATE POLICY "Seller or admin insert products" ON public.products
+    FOR INSERT TO authenticated
+    WITH CHECK ((public.is_seller() AND "sellerId" = public.current_app_user_id()) OR public.is_admin());
+CREATE POLICY "Seller or admin update products" ON public.products
+    FOR UPDATE TO authenticated
+    USING ((public.is_seller() AND "sellerId" = public.current_app_user_id()) OR public.is_admin())
+    WITH CHECK ((public.is_seller() AND "sellerId" = public.current_app_user_id()) OR public.is_admin());
+CREATE POLICY "Seller or admin delete products" ON public.products
+    FOR DELETE TO authenticated
+    USING ((public.is_seller() AND "sellerId" = public.current_app_user_id()) OR public.is_admin());
+
+-- 9.4 app_users: chỉ xem/sửa hồ sơ của chính mình hoặc Admin
+DROP POLICY IF EXISTS "Read own profile or admin" ON public.app_users;
+DROP POLICY IF EXISTS "Admin insert app_users" ON public.app_users;
+DROP POLICY IF EXISTS "Update own profile or admin" ON public.app_users;
+DROP POLICY IF EXISTS "Admin delete app_users" ON public.app_users;
+CREATE POLICY "Read own profile or admin" ON public.app_users
+    FOR SELECT TO authenticated
+    USING (auth_uid = auth.uid() OR public.is_admin());
+CREATE POLICY "Admin insert app_users" ON public.app_users
+    FOR INSERT TO authenticated
+    WITH CHECK (public.is_admin());
+CREATE POLICY "Update own profile or admin" ON public.app_users
+    FOR UPDATE TO authenticated
+    USING (auth_uid = auth.uid() OR public.is_admin())
+    WITH CHECK (auth_uid = auth.uid() OR public.is_admin());
+CREATE POLICY "Admin delete app_users" ON public.app_users
+    FOR DELETE TO authenticated
+    USING (public.is_admin());
+
+-- 9.5 orders: chỉ xem/cập nhật đơn của chính mình, đơn chứa sách shop mình (Seller), hoặc Admin; tạo đơn qua place_order()
+DROP POLICY IF EXISTS "Read own or shop orders or admin" ON public.orders;
+DROP POLICY IF EXISTS "Admin direct insert orders" ON public.orders;
+DROP POLICY IF EXISTS "Update own or shop orders or admin" ON public.orders;
+DROP POLICY IF EXISTS "Admin delete orders" ON public.orders;
+CREATE POLICY "Read own or shop orders or admin" ON public.orders
+    FOR SELECT TO authenticated
+    USING (
+        public.is_admin()
+        OR "userId" = public.current_app_user_id()
+        OR (
+            public.is_seller()
+            AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements(items) AS it
+                WHERE (it->>'sellerId')::BIGINT = public.current_app_user_id()
+            )
+        )
+    );
+CREATE POLICY "Admin direct insert orders" ON public.orders
+    FOR INSERT TO authenticated
+    WITH CHECK (public.is_admin());
+CREATE POLICY "Update own or shop orders or admin" ON public.orders
+    FOR UPDATE TO authenticated
+    USING (
+        public.is_admin()
+        OR "userId" = public.current_app_user_id()
+        OR (
+            public.is_seller()
+            AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements(items) AS it
+                WHERE (it->>'sellerId')::BIGINT = public.current_app_user_id()
+            )
+        )
+    );
+CREATE POLICY "Admin delete orders" ON public.orders
+    FOR DELETE TO authenticated
+    USING (public.is_admin());
+
+-- 9.6 reviews: công khai đọc; đăng nhập mới được viết/sửa/xóa bình luận của mình
+DROP POLICY IF EXISTS "Public read reviews" ON public.reviews;
+DROP POLICY IF EXISTS "Auth insert own reviews" ON public.reviews;
+DROP POLICY IF EXISTS "Update own reviews or admin" ON public.reviews;
+DROP POLICY IF EXISTS "Delete own reviews or admin" ON public.reviews;
+CREATE POLICY "Public read reviews" ON public.reviews FOR SELECT USING (true);
+CREATE POLICY "Auth insert own reviews" ON public.reviews
+    FOR INSERT TO authenticated
+    WITH CHECK ("userId" = public.current_app_user_id() OR public.is_admin());
+CREATE POLICY "Update own reviews or admin" ON public.reviews
+    FOR UPDATE TO authenticated
+    USING ("userId" = public.current_app_user_id() OR public.is_admin());
+CREATE POLICY "Delete own reviews or admin" ON public.reviews
+    FOR DELETE TO authenticated
+    USING ("userId" = public.current_app_user_id() OR public.is_admin());
+
+-- 9.7 wishlist: hoàn toàn riêng tư theo userId
+DROP POLICY IF EXISTS "Manage own wishlist" ON public.wishlist;
+CREATE POLICY "Manage own wishlist" ON public.wishlist
+    FOR ALL TO authenticated
+    USING ("userId" = public.current_app_user_id() OR public.is_admin())
+    WITH CHECK ("userId" = public.current_app_user_id() OR public.is_admin());
+
+-- 9.8 notifications: đọc/sửa/xóa thông báo của mình; Seller/Admin được tạo thông báo trạng thái đơn
+DROP POLICY IF EXISTS "Read own notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Insert notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Update own notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Delete own notifications" ON public.notifications;
+CREATE POLICY "Read own notifications" ON public.notifications
+    FOR SELECT TO authenticated
+    USING ("userId" = public.current_app_user_id() OR public.is_admin());
+CREATE POLICY "Insert notifications" ON public.notifications
+    FOR INSERT TO authenticated
+    WITH CHECK ("userId" = public.current_app_user_id() OR public.is_seller() OR public.is_admin());
+CREATE POLICY "Update own notifications" ON public.notifications
+    FOR UPDATE TO authenticated
+    USING ("userId" = public.current_app_user_id() OR public.is_admin());
+CREATE POLICY "Delete own notifications" ON public.notifications
+    FOR DELETE TO authenticated
+    USING ("userId" = public.current_app_user_id() OR public.is_admin());
+
+-- 9.9 chat_messages: chỉ 2 người trong cuộc hội thoại (hoặc Admin) được xem; gửi chỉ với senderId = mình
+DROP POLICY IF EXISTS "Read own chat messages" ON public.chat_messages;
+DROP POLICY IF EXISTS "Insert own chat messages" ON public.chat_messages;
+DROP POLICY IF EXISTS "Mark own received chat read" ON public.chat_messages;
+DROP POLICY IF EXISTS "Admin delete chat messages" ON public.chat_messages;
+CREATE POLICY "Read own chat messages" ON public.chat_messages
+    FOR SELECT TO authenticated
+    USING ("senderId" = public.current_app_user_id() OR "receiverId" = public.current_app_user_id() OR public.is_admin());
+CREATE POLICY "Insert own chat messages" ON public.chat_messages
+    FOR INSERT TO authenticated
+    WITH CHECK ("senderId" = public.current_app_user_id());
+CREATE POLICY "Mark own received chat read" ON public.chat_messages
+    FOR UPDATE TO authenticated
+    USING ("receiverId" = public.current_app_user_id() OR public.is_admin());
+CREATE POLICY "Admin delete chat messages" ON public.chat_messages
+    FOR DELETE TO authenticated
+    USING (public.is_admin());
+

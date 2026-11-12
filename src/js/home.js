@@ -1164,6 +1164,7 @@ function setupHeroSlider(products) {
 
 // Khởi chạy ứng dụng Trang chủ
 async function init() {
+    await authService.syncSession();
     setupCurrentUser();
     updateCartBadge();
     clearAllSearchInputs();

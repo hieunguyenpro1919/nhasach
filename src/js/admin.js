@@ -3048,6 +3048,13 @@ if (couponsTableBody) {
 // 9. Khởi chạy và nạp dữ liệu ban đầu
 async function initAdmin() {
     try {
+        const verified = await authService.syncSession();
+        if (!verified || verified.role !== 'admin') {
+            alert('⚠️ Phiên quản trị không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại!');
+            window.location.href = './login.html';
+            return;
+        }
+
         const [categories, books, orders, users, fetchedSaleConfig, coupons] = await Promise.all([
             categoryService.getAll(),
             productService.getAll(),

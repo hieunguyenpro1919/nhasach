@@ -62,14 +62,14 @@ export const internalChatService = {
     async getAvailableContacts(currentUser) {
         try {
             const allUsers = isSupabaseEnabled
-                ? unwrap(await supabase.from('app_users').select('id, name, email, role, avatar, "shopName"')) || []
+                ? unwrap(await supabase.rpc('get_chat_contacts')) || []
                 : (await api.get('/user')).data || [];
 
             const others = allUsers.filter(u => Number(u.id) !== Number(currentUser.id));
 
             return others.map(u => ({
                 id: u.id,
-                name: u.shopName || u.name || u.email,
+                name: u.shopName || u.name || u.email || 'Người dùng',
                 role: u.role,
                 avatar: u.avatar || '',
                 subtitle: u.role === 'seller' ? 'Gian hàng đối tác' : (u.role === 'admin' ? 'Ban Quản Trị Hệ Thống' : 'Khách hàng')

@@ -108,10 +108,19 @@ registerForm?.addEventListener('submit', async (event) => {
             newUser.shopStatus = 'active';
         }
 
-        // Gửi request đăng ký qua authService
-        await authService.register(newUser);
+        // Gửi request đăng ký qua authService (Supabase Auth tạo user + trigger đồng bộ app_users)
+        const result = await authService.register(newUser);
 
-        const successText = isSeller 
+        if (result?.requiresEmailVerification) {
+            showMessage(
+                `📧 Đăng ký thành công! Vui lòng kiểm tra hộp thư "${email}" và bấm vào liên kết xác nhận trước khi đăng nhập.`,
+                true
+            );
+            registerForm.reset();
+            return;
+        }
+
+        const successText = isSeller
             ? 'Đăng ký gian hàng thành công! Đang chuyển đến trang đăng nhập...'
             : 'Đăng ký tài khoản thành công! Đang chuyển đến trang đăng nhập...';
 
@@ -125,6 +134,6 @@ registerForm?.addEventListener('submit', async (event) => {
 
     } catch (error) {
         console.error('Lỗi khi đăng ký:', error);
-        showMessage('Không thể kết nối đến máy chủ.');
+        showMessage(error.message || 'Không thể đăng ký tài khoản lúc này.');
     }
 });

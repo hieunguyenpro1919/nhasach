@@ -68,5 +68,25 @@ export const orderService = {
         }
         const response = await api.delete(`/orders/${orderId}`);
         return response.data;
+    },
+
+    async lookupGuestOrder(orderCode, phone) {
+        if (isSupabaseEnabled) {
+            const { data, error } = await supabase.rpc('lookup_guest_order', {
+                p_order_code: String(orderCode || '').trim(),
+                p_phone: String(phone || '').trim()
+            });
+            if (error) {
+                throw new Error(error.message || 'Không thể tra cứu đơn hàng.');
+            }
+            return data || null;
+        }
+        const orders = await this.getAllOrders();
+        const normCode = String(orderCode || '').trim().toUpperCase();
+        const normPhone = String(phone || '').replace(/\D/g, '');
+        return (orders || []).find(o =>
+            String(o.orderCode || '').toUpperCase() === normCode &&
+            String(o.receiverPhone || '').replace(/\D/g, '') === normPhone
+        ) || null;
     }
 };

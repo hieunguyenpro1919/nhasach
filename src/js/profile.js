@@ -109,7 +109,7 @@ function renderAvatar(avatarUrl, name, email) {
 
 // Nạp dữ liệu tài khoản
 async function initUserProfile() {
-    currentUser = authService.getCurrentUser();
+    currentUser = await authService.syncSession();
     if (!currentUser) {
         alert('Vui lòng đăng nhập để xem và quản trị hồ sơ cá nhân của bạn!');
         window.location.href = './login.html';

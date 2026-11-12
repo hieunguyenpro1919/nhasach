@@ -98,7 +98,7 @@ function renderWishlistGrid(items) {
 
 // Tải dữ liệu từ Wishlist Service
 async function loadWishlist() {
-    currentUser = authService.getCurrentUser();
+    currentUser = await authService.syncSession();
     if (!currentUser) {
         if (wishlistLoading) wishlistLoading.classList.add('hidden');
         if (wishlistLoginRequired) wishlistLoginRequired.classList.remove('hidden');

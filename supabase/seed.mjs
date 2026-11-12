@@ -7,6 +7,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 
@@ -67,58 +68,83 @@ async function run() {
     // 1. Categories
     await seedTable('categories', db.categories);
 
-    // 2. Users (hash password bằng bcrypt qua RPC auth_register, sắp xếp id tăng dần để tránh trùng id)
+    // 2. Users (tạo/đồng bộ tài khoản thật trong Supabase Auth + liên kết app_users.auth_uid)
+    const { data: listedAuth, error: listAuthErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    if (listAuthErr) {
+        throw new Error(`Lỗi liệt kê Supabase Auth users: ${listAuthErr.message}`);
+    }
+    const authByEmail = new Map(
+        (listedAuth?.users || []).map(au => [String(au.email || '').toLowerCase(), au])
+    );
+
     const users = [...(db.user || [])].sort((a, b) => Number(a.id) - Number(b.id));
     for (const u of users) {
-        const { data: existing } = await supabase
-            .from('app_users')
-            .select('id')
-            .ilike('email', u.email)
-            .maybeSingle();
+        const cleanEmail = String(u.email || '').trim().toLowerCase();
+        if (!cleanEmail) continue;
 
-        if (!existing) {
-            const { data: created, error } = await supabase.rpc('auth_register', {
-                p_name: u.name || u.email,
-                p_email: u.email,
-                p_password: String(u.password || '123456'),
-                p_role: u.role || 'customer',
-                p_shop_name: u.shopName || ''
+        const rawPass = String(u.password || '');
+        let initialPassword = rawPass;
+        let generatedStrongPass = false;
+        if (initialPassword.length < 6) {
+            initialPassword = process.env.SEED_ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
+            generatedStrongPass = !process.env.SEED_ADMIN_PASSWORD;
+        }
+
+        let authUser = authByEmail.get(cleanEmail);
+        if (!authUser) {
+            const { data: createdAuth, error: createAuthErr } = await supabase.auth.admin.createUser({
+                email: cleanEmail,
+                password: initialPassword,
+                email_confirm: true,
+                user_metadata: {
+                    name: u.name || cleanEmail,
+                    role: u.role === 'seller' ? 'seller' : 'customer',
+                    shopName: u.shopName || '',
+                    shopPhone: u.shopPhone || '',
+                    shopAddress: u.shopAddress || ''
+                }
             });
-            if (error) {
-                console.warn(`⚠️ User ${u.email}:`, error.message);
+            if (createAuthErr) {
+                console.warn(`⚠️ Không tạo được Auth user ${cleanEmail}:`, createAuthErr.message);
                 continue;
             }
-            if (created && created.id !== u.id) {
-                await supabase
-                    .from('app_users')
-                    .update({
-                        id: u.id,
-                        phone: u.phone || '',
-                        address: u.address || '',
-                        avatar: u.avatar || '',
-                        shopDescription: u.shopDescription || '',
-                        isLocked: Boolean(u.isLocked),
-                        status: u.status || 'active',
-                        shopStatus: u.shopStatus || 'active'
-                    })
-                    .eq('id', created.id);
-            } else {
-                await supabase
-                    .from('app_users')
-                    .update({
-                        phone: u.phone || '',
-                        address: u.address || '',
-                        avatar: u.avatar || '',
-                        shopDescription: u.shopDescription || '',
-                        isLocked: Boolean(u.isLocked),
-                        status: u.status || 'active',
-                        shopStatus: u.shopStatus || 'active'
-                    })
-                    .eq('id', u.id);
+            authUser = createdAuth.user;
+            if (generatedStrongPass) {
+                console.log(`🔐 Đã tạo mật khẩu mạnh tạm thời cho ${cleanEmail}: ${initialPassword}`);
             }
         }
+
+        const profilePayload = {
+            auth_uid: authUser.id,
+            name: u.name || cleanEmail,
+            email: cleanEmail,
+            password_hash: 'AUTH_MANAGED',
+            role: u.role || 'customer',
+            phone: u.phone || '',
+            address: u.address || '',
+            avatar: u.avatar || '',
+            shopName: u.shopName || '',
+            shopDescription: u.shopDescription || '',
+            shopPhone: u.shopPhone || '',
+            shopAddress: u.shopAddress || '',
+            isLocked: Boolean(u.isLocked),
+            status: u.status || 'active',
+            shopStatus: u.shopStatus || 'active'
+        };
+
+        const { data: existingByEmail } = await supabase
+            .from('app_users')
+            .select('id')
+            .ilike('email', cleanEmail)
+            .maybeSingle();
+
+        if (existingByEmail) {
+            await supabase.from('app_users').update(profilePayload).eq('id', existingByEmail.id);
+        } else {
+            await supabase.from('app_users').upsert({ id: u.id, ...profilePayload }, { onConflict: 'id' });
+        }
     }
-    console.log(`✅ Đã đồng bộ ${users.length} tài khoản vào "app_users"`);
+    console.log(`✅ Đã đồng bộ ${users.length} tài khoản thật vào Auth + "app_users"`);
 
     // 3. Products (chuẩn hóa các field boolean/số để bulk upsert không gửi NULL vào cột NOT NULL)
     const normalizedProducts = (db.products || []).map(p => ({
