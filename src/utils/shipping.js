@@ -86,9 +86,9 @@ function ensureDispatchModal() {
                     </small>
                 </div>
 
-                <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+                <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
                     <button type="button" class="btn-modal-cancel" id="btnCancelDispatchModal">Hủy</button>
-                    <button type="submit" class="btn-modal-save">Xác nhận giao hàng</button>
+                    <button type="submit" class="btn-modal-submit" style="background: #0284c7; color: #fff;">Xác nhận giao hàng</button>
                 </div>
             </form>
         </div>
@@ -172,3 +172,4 @@ export function openDispatchModal(order) {
         setTimeout(() => trackingInput.focus(), 50);
     });
 }
+

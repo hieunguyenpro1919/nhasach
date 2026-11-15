@@ -1335,3 +1335,79 @@ main {
     display: none !important;
   }
 }
+
+/* ============ BADGE & NÚT SAO CHÉP MÃ VẬN ĐƠN ============ */
+.shipping-info-banner {
+  grid-column: 1 / -1;
+  background: rgba(2, 132, 199, 0.08);
+  border: 1px dashed rgba(2, 132, 199, 0.4);
+  border-radius: var(--radius-md, 8px);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.shipping-carrier-name {
+  font-weight: 700;
+  color: #0284c7;
+}
+
+.shipping-tracking-badge {
+  font-family: monospace;
+  font-weight: 700;
+  color: #0f172a;
+  background: #f1f5f9;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+}
+
+.btn-copy-tracking {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-copy-tracking:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+html.dark .shipping-info-banner,
+body.dark .shipping-info-banner {
+  background: rgba(2, 132, 199, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+html.dark .shipping-tracking-badge,
+body.dark .shipping-tracking-badge {
+  background: #1e293b;
+  color: #f1f5f9;
+  border-color: #334155;
+}
+
+html.dark .btn-copy-tracking,
+body.dark .btn-copy-tracking {
+  background: #1e293b;
+  color: #cbd5e1;
+  border-color: #475569;
+}
+
+html.dark .btn-copy-tracking:hover,
+body.dark .btn-copy-tracking:hover {
+  background: #334155;
+  color: #ffffff;
+}

@@ -575,15 +575,20 @@ function renderOrders(orders) {
         const isPendingCod = !isVietQr && (order.status || '').toLowerCase().includes('chờ xác nhận');
         const shipping = formatShippingSummary(order);
         const shippingBoxHtml = shipping.hasShipping ? `
-                        <div class="info-box" style="grid-column: 1 / -1; background: rgba(2, 132, 199, 0.06); border: 1px dashed rgba(2, 132, 199, 0.35); border-radius: 8px; padding: 10px 12px;">
-                            <strong>🚚 Đơn vị vận chuyển:</strong>
-                            <span style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <span style="font-weight: 700; color: #0284c7;">${escapeHtml(shipping.carrier)}</span>
+                        <div class="shipping-info-banner">
+                            <div>
+                                <strong>🚚 Đơn vị vận chuyển:</strong>
+                                <span class="shipping-carrier-name" style="margin-left: 6px;">${escapeHtml(shipping.carrier)}</span>
                                 ${shipping.trackingCode ? `
-                                    <span>&bull; Mã vận đơn: <strong style="font-family: monospace; color: #0f172a;">${escapeHtml(shipping.trackingCode)}</strong></span>
-                                    <button type="button" class="btn-copy-tracking" data-tracking="${escapeHtml(shipping.trackingCode)}" style="border: 1px solid #cbd5e1; background: #fff; color: #334155; border-radius: 6px; padding: 2px 8px; font-size: 0.78rem; cursor: pointer; font-weight: 600;">📋 Sao chép</button>
+                                    <span style="margin: 0 4px; color: #94a3b8;">&bull;</span>
+                                    <span>Mã vận đơn: <span class="shipping-tracking-badge">${escapeHtml(shipping.trackingCode)}</span></span>
                                 ` : ''}
-                            </span>
+                            </div>
+                            ${shipping.trackingCode ? `
+                                <button type="button" class="btn-copy-tracking" data-tracking="${escapeHtml(shipping.trackingCode)}" title="Sao chép mã vận đơn">
+                                    📋 Sao chép mã
+                                </button>
+                            ` : ''}
                         </div>` : '';
 
         let actionsHtml = `
