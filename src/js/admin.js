@@ -169,6 +169,8 @@ const detailShippingInfo = document.querySelector('#detailShippingInfo');
 const detailOrderDate = document.querySelector('#detailOrderDate');
 const detailOrderItemsList = document.querySelector('#detailOrderItemsList');
 const detailOrderTotal = document.querySelector('#detailOrderTotal');
+const adminDetailActionsBox = document.querySelector('#adminDetailActionsBox');
+const adminDetailActionsButtons = document.querySelector('#adminDetailActionsButtons');
 const btnCloseOrderDetailModal = document.querySelector('#btnCloseOrderDetailModal');
 
 // Modal Thể loại
@@ -966,6 +968,30 @@ if (ordersTableBody) {
                 </div>
             `).join('');
 
+            // Render các nút hành động trực tiếp trong Modal Chi tiết Đơn hàng của Admin
+            if (adminDetailActionsButtons) {
+                const stLower = (order.status || '').toLowerCase();
+                const isCompleted = stLower.includes('hoàn thành');
+                const isCancelled = stLower.includes('hủy');
+                let actionsHtml = '';
+
+                if (isCompleted) {
+                    actionsHtml = `<span style="color: #059669; font-weight: 700; font-size: 0.9rem;">✓ Đơn hàng đã hoàn thành.</span>`;
+                } else if (isCancelled) {
+                    actionsHtml = `<span style="color: #dc2626; font-weight: 700; font-size: 0.9rem;">✕ Đơn hàng đã bị hủy.</span>`;
+                } else {
+                    actionsHtml = `
+                        <button type="button" class="btn-modal-submit btn-modal-dispatch-admin" data-id="${order.id}" style="background: #0284c7; color: #fff; padding: 8px 16px; font-size: 0.88rem;">
+                            🚚 Bàn giao đơn vị vận chuyển (Gán mã vận đơn)
+                        </button>
+                        <button type="button" class="btn-modal-submit btn-modal-advance-admin" data-id="${order.id}" data-next="Hoàn thành" style="background: #059669; color: #fff; padding: 8px 16px; font-size: 0.88rem;">
+                            ✓ Xác nhận Hoàn thành
+                        </button>
+                    `;
+                }
+                adminDetailActionsButtons.innerHTML = actionsHtml;
+            }
+
             orderDetailModal.classList.add('active');
             return;
         }
@@ -1015,6 +1041,59 @@ if (ordersTableBody) {
 if (btnCloseOrderDetailModal) {
     btnCloseOrderDetailModal.addEventListener('click', () => {
         orderDetailModal.classList.remove('active');
+    });
+}
+
+// Xử lý sự kiện bấm nút Thao tác bên trong Modal Chi tiết Đơn hàng của Admin
+if (orderDetailModal) {
+    orderDetailModal.addEventListener('click', async (e) => {
+        // 1. Bàn giao vận chuyển từ trong modal chi tiết
+        const btnDispatch = e.target.closest('.btn-modal-dispatch-admin');
+        if (btnDispatch) {
+            const orderId = btnDispatch.dataset.id;
+            const order = allOrders.find(o => Number(o.id) === Number(orderId));
+            const dispatch = await openDispatchModal(order || { id: orderId });
+            if (!dispatch) return;
+            try {
+                const updated = await orderService.dispatchOrder(orderId, dispatch);
+                if (order) Object.assign(order, updated, dispatch, { status: 'Đang giao hàng' });
+                applyOrdersFilter(false);
+                updateStats();
+
+                if (detailOrderStatusBadge) detailOrderStatusBadge.textContent = '● Đang giao hàng';
+                if (detailShippingInfo) {
+                    detailShippingInfo.textContent = `${dispatch.shippingCarrier} — Mã vận đơn: ${dispatch.trackingCode}`;
+                }
+                alert(`✓ Đã bàn giao đơn #${order?.orderCode || orderId} cho ${dispatch.shippingCarrier} (Mã vận đơn: ${dispatch.trackingCode})!`);
+                orderDetailModal.classList.remove('active');
+            } catch (err) {
+                console.error('Lỗi bàn giao đơn hàng:', err);
+                alert('Không thể bàn giao đơn hàng cho đơn vị vận chuyển.');
+            }
+            return;
+        }
+
+        // 2. Chuyển trạng thái Hoàn thành từ trong modal chi tiết
+        const btnAdvance = e.target.closest('.btn-modal-advance-admin');
+        if (btnAdvance) {
+            const orderId = btnAdvance.dataset.id;
+            const nextStatus = btnAdvance.dataset.next;
+            const order = allOrders.find(o => Number(o.id) === Number(orderId));
+            if (confirm(`Xác nhận chuyển đơn #${order?.orderCode || orderId} sang "${nextStatus}"?`)) {
+                try {
+                    await orderService.updateStatus(orderId, nextStatus);
+                    if (order) order.status = nextStatus;
+                    applyOrdersFilter(false);
+                    updateStats();
+                    if (detailOrderStatusBadge) detailOrderStatusBadge.textContent = `● ${nextStatus}`;
+                    alert(`✓ Đã cập nhật trạng thái đơn hàng #${order?.orderCode || orderId} thành: "${nextStatus}"`);
+                    orderDetailModal.classList.remove('active');
+                } catch (err) {
+                    console.error('Lỗi khi cập nhật trạng thái đơn:', err);
+                    alert('Không thể cập nhật trạng thái đơn hàng.');
+                }
+            }
+        }
     });
 }
 
