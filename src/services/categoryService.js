@@ -27,11 +27,26 @@ export const categoryService = {
     },
 
     async delete(id) {
+        return this.deleteWithProducts(id);
+    },
+
+    async deleteWithProducts(id) {
+        const catId = Number(id);
         if (isSupabaseEnabled) {
-            unwrap(await supabase.from('categories').delete().eq('id', Number(id)));
+            // Xóa toàn bộ sản phẩm gắn thể loại này trước
+            unwrap(await supabase.from('products').delete().eq('categoryId', catId));
+            // Xóa thể loại
+            unwrap(await supabase.from('categories').delete().eq('id', catId));
             return true;
         }
-        const response = await api.delete(`/categories/${id}`);
+        try {
+            const res = await api.get(`/products?categoryId=${catId}`);
+            const prods = Array.isArray(res.data) ? res.data : [];
+            await Promise.all(prods.map(p => api.delete(`/products/${p.id}`)));
+        } catch (e) {
+            console.warn('Lỗi khi xóa sản phẩm thuộc category trên mock API:', e);
+        }
+        const response = await api.delete(`/categories/${catId}`);
         return response.data;
     }
 };

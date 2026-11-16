@@ -1504,6 +1504,35 @@ main {
   color: #ffffff;
 }
 
+.btn-rev-filter {
+  border: 1px solid var(--gray-200);
+  background: #f8fafc;
+  color: #475569;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-rev-filter:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn-rev-filter.active {
+  background: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #ffffff !important;
+}
+
+.btn-rev-filter.active span {
+  color: #ffffff !important;
+}
+
 .rev-date-custom {
   display: flex;
   align-items: center;
@@ -2169,11 +2198,54 @@ body.dark .rev-period-btn {
   color: #cbd5e1;
 }
 
+html.dark .btn-rev-filter,
+body.dark .btn-rev-filter {
+  background: #1e293b;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+
+html.dark .btn-rev-filter.active,
+body.dark .btn-rev-filter.active {
+  background: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #ffffff !important;
+}
+
 html.dark .rev-period-btn.active,
 body.dark .rev-period-btn.active {
   background: var(--primary);
   border-color: var(--primary);
   color: #ffffff;
+}
+
+.btn-rev-filter {
+  border: 1px solid var(--gray-200);
+  background: #f8fafc;
+  color: #475569;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-rev-filter:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn-rev-filter.active {
+  background: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #ffffff !important;
+}
+
+.btn-rev-filter.active span {
+  color: #ffffff !important;
 }
 
 html.dark .rev-date-input,

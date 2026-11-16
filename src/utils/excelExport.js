@@ -197,18 +197,22 @@ export const excelExportUtil = {
         wsCats['!cols'] = [{ wch: 8 }, { wch: 28 }, { wch: 14 }, { wch: 22 }, { wch: 14 }];
         XLSX.utils.book_append_sheet(workbook, wsCats, "Theo_The_Loai");
 
-        const bookRows = topBooks.map((b, idx) => ({
-            "Hạng": idx + 1,
+        const bookRows = (report.allBooksList || topBooks || []).map((b, idx) => ({
+            "STT": idx + 1,
             "Mã sách": b.id,
-            "Tên sách": b.name,
-            "Nhà bán": b.sellerName,
-            "Số cuốn bán": b.soldCount,
-            "Doanh số (₫)": b.revenue,
-            "Tỷ trọng (%)": totalBase > 0 ? Math.round((b.revenue / totalBase) * 100) : 0
+            "Tên tựa sách": b.name,
+            "Nhà bán": b.sellerName || '',
+            "Giá vốn nhập (₫)": Number(b.importPrice || 0),
+            "Giá bán ra (₫)": Number(b.price || 0),
+            "Số cuốn đã bán": Number(b.soldCount || 0),
+            "Tồn kho hiện tại": Number(b.stock || 0),
+            "Doanh số (₫)": Number(b.revenue || 0),
+            "Lợi nhuận gộp (₫)": Number(b.profit || 0),
+            "Trạng thái bán": Number(b.soldCount || 0) > 0 ? (Number(b.soldCount) >= 5 ? 'Bán chạy' : 'Đã bán') : 'Chưa bán được'
         }));
-        const wsBooks = XLSX.utils.json_to_sheet(bookRows.length ? bookRows : [{ "Thông báo": "Chưa có dữ liệu sách bán" }]);
-        wsBooks['!cols'] = [{ wch: 8 }, { wch: 10 }, { wch: 36 }, { wch: 24 }, { wch: 14 }, { wch: 18 }, { wch: 14 }];
-        XLSX.utils.book_append_sheet(workbook, wsBooks, "Top_Sach_Ban_Chay");
+        const wsBooks = XLSX.utils.json_to_sheet(bookRows.length ? bookRows : [{ "Thông báo": "Chưa có dữ liệu sách" }]);
+        wsBooks['!cols'] = [{ wch: 6 }, { wch: 10 }, { wch: 36 }, { wch: 24 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 16 }];
+        XLSX.utils.book_append_sheet(workbook, wsBooks, "Hieu_Qua_Tung_Dau_Sach");
 
         const fileName = `bao_cao_doanh_thu_${getFormattedDate()}.xlsx`;
         XLSX.writeFile(workbook, fileName);

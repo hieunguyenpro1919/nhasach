@@ -376,29 +376,56 @@
                     </div>
                 </div>
 
-                <!-- TOP SÁCH BÁN CHẠY TRONG KỲ -->
+                <!-- THỐNG KÊ CHI TIẾT HIỆU QUẢ TỪNG ĐẦU SÁCH (SỐ LƯỢNG BÁN, GIÁ VỐN, GIÁ BÁN, LÃI GỘP) -->
                 <div class="table-card rev-table-box" style="margin-bottom: 24px;">
-                    <div class="rev-section-header">
+                    <div class="rev-section-header" style="flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between;">
                         <div>
-                            <h3 class="rev-heading">🔥 Top Sách Doanh Thu Cao Nhất</h3>
-                            <p class="rev-subtext">Các tựa sách bán chạy và đóng góp doanh số lớn nhất trong kỳ lọc</p>
+                            <h3 class="rev-heading">📚 Thống Kê Hiệu Quả Bán Hàng & Lợi Nhuận Từng Đầu Sách</h3>
+                            <p class="rev-subtext">Theo dõi chi tiết số lượng bán ra, tồn kho, giá vốn nhập, giá bán và lãi gộp để biết cuốn nào bán chạy và cuốn nào chưa bán được</p>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <div class="rev-filter-chips" id="revBookFilterChips" style="display: flex; gap: 6px;">
+                                <button type="button" class="btn-rev-filter active" data-filter="all">Tất cả (<span id="countRevBooksAll">0</span>)</button>
+                                <button type="button" class="btn-rev-filter" data-filter="sold" style="color: #059669;">🔥 Đã bán (<span id="countRevBooksSold">0</span>)</button>
+                                <button type="button" class="btn-rev-filter" data-filter="unsold" style="color: #dc2626;">⚠️ Chưa bán được (<span id="countRevBooksUnsold">0</span>)</button>
+                            </div>
+                            <input type="search" id="searchRevBookInput" placeholder="Tìm theo tên sách..." style="padding: 6px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; width: 180px;">
+                            <select id="sortRevBookSelect" style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; background: #fff; cursor: pointer;">
+                                <option value="sold-desc">Bán chạy nhất (Số lượng ↓)</option>
+                                <option value="unsold-first">Chưa bán được lên đầu</option>
+                                <option value="revenue-desc">Doanh số cao nhất ↓</option>
+                                <option value="profit-desc">Lãi gộp cao nhất ↓</option>
+                                <option value="price-desc">Giá bán cao nhất ↓</option>
+                                <option value="stock-desc">Tồn kho nhiều nhất ↓</option>
+                            </select>
                         </div>
                     </div>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 50px;">Hạng</th>
-                                <th>Tựa sách</th>
-                                <th>Nhà bán</th>
-                                <th>Số lượng bán</th>
-                                <th>Doanh số</th>
-                                <th style="width: 140px;">Tỷ trọng</th>
-                            </tr>
-                        </thead>
-                        <tbody id="topBooksRevenueTableBody">
-                            <!-- Render bằng admin.js -->
-                        </tbody>
-                    </table>
+                    <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px;">Hạng</th>
+                                    <th>Tựa sách</th>
+                                    <th>Nhà bán</th>
+                                    <th style="text-align: right;">Giá vốn nhập</th>
+                                    <th style="text-align: right;">Giá bán ra</th>
+                                    <th style="text-align: center;">Đã bán ra</th>
+                                    <th style="text-align: center;">Tồn kho</th>
+                                    <th style="text-align: right;">Doanh số</th>
+                                    <th style="text-align: right;">Lãi gộp</th>
+                                    <th style="text-align: center; width: 110px;">Trạng thái</th>
+                                </tr>
+                            </thead>
+                            <tbody id="topBooksRevenueTableBody">
+                                <!-- Render bằng admin.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="padding: 12px 18px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 0.86rem; color: #64748b; flex-wrap: wrap; gap: 12px;" id="revBooksTableSummary">
+                        <span>Đang hiển thị: <strong id="revBooksDisplayedCount" style="color: #0f172a;">0</strong> đầu sách</span>
+                        <span>Tổng số cuốn đã bán: <strong id="revBooksTotalSoldQty" style="color: #059669;">0</strong> cuốn</span>
+                        <span>Tổng lãi gộp: <strong id="revBooksTotalProfit" style="color: #059669;">0 ₫</strong></span>
+                    </div>
                 </div>
 
                 <!-- CƠ CẤU THANH TOÁN (VIETQR VS COD) -->

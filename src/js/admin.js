@@ -1273,29 +1273,34 @@ if (categoriesTableBody) {
             return;
         }
 
-        // Xóa thể loại
+        // Xóa thể loại (xóa luôn tất cả sách gắn tag thể loại đó)
         const btnDelete = e.target.closest('.btn-delete-category');
         if (btnDelete) {
             const id = btnDelete.dataset.id;
             const name = btnDelete.dataset.name;
-            const count = Number(btnDelete.dataset.count);
+            const booksWithCat = allBooks.filter(b => Number(b.categoryId) === Number(id));
+            const count = booksWithCat.length;
 
-            if (count > 0) {
-                alert(`⚠️ Không thể xóa thể loại "${name}" vì hiện đang có ${count} cuốn sách thuộc thể loại này!`);
-                return;
-            }
+            const confirmMsg = count > 0
+                ? `⚠️ CẢNH BÁO QUAN TRỌNG:\n\nThể loại "${name}" hiện đang có ${count} cuốn sách gắn thể loại này.\n\nTheo quy định hệ thống, khi xóa thể loại này thì TẤT CẢ ${count} cuốn sách thuộc thể loại "${name}" cũng sẽ BỊ XÓA VĨNH VIỄN khỏi kho sách!\n\nBạn có chắc chắn muốn xóa thể loại "${name}" và toàn bộ ${count} cuốn sách này không?`
+                : `Bạn có chắc muốn xóa thể loại "${name}"?`;
 
-            if (confirm(`Bạn có chắc muốn xóa thể loại "${name}"?`)) {
+            if (confirm(confirmMsg)) {
                 try {
-                    await categoryService.delete(id);
+                    await categoryService.deleteWithProducts(id);
                     allCategories = allCategories.filter(c => Number(c.id) !== Number(id));
+                    allBooks = allBooks.filter(b => Number(b.categoryId) !== Number(id));
+
                     renderCategories(allCategories);
                     updateCategoriesSelect();
+                    applyBooksFilter(false);
+                    applySaleBooksFilter(false);
                     updateStats();
-                    alert('✓ Đã xóa thể loại thành công!');
+                    renderRevenueDashboard();
+                    alert(`✓ Đã xóa thành công thể loại "${name}"${count > 0 ? ` và toàn bộ ${count} cuốn sách liên quan!` : '!'}`);
                 } catch (err) {
                     console.error('Lỗi khi xóa thể loại:', err);
-                    alert('Không thể xóa thể loại.');
+                    alert('Không thể xóa thể loại. Vui lòng kiểm tra lại kết nối.');
                 }
             }
         }
@@ -1969,6 +1974,152 @@ function filterOrdersByRevenuePeriod(orders) {
     };
 }
 
+let revBookFilter = 'all'; // 'all' | 'sold' | 'unsold'
+let revBookSearch = '';
+let revBookSort = 'sold-desc';
+let allRevenueBooksData = [];
+
+function renderRevenueBooksTable() {
+    const topBooksRevenueTableBody = document.querySelector('#topBooksRevenueTableBody');
+    const countRevBooksAll = document.querySelector('#countRevBooksAll');
+    const countRevBooksSold = document.querySelector('#countRevBooksSold');
+    const countRevBooksUnsold = document.querySelector('#countRevBooksUnsold');
+    const revBooksDisplayedCount = document.querySelector('#revBooksDisplayedCount');
+    const revBooksTotalSoldQty = document.querySelector('#revBooksTotalSoldQty');
+    const revBooksTotalProfit = document.querySelector('#revBooksTotalProfit');
+
+    if (!topBooksRevenueTableBody) return;
+
+    // Cập nhật số lượng đếm trên các chip filter
+    const totalAll = allRevenueBooksData.length;
+    const totalSold = allRevenueBooksData.filter(b => b.soldCount > 0).length;
+    const totalUnsold = allRevenueBooksData.filter(b => b.soldCount === 0).length;
+
+    if (countRevBooksAll) countRevBooksAll.textContent = totalAll;
+    if (countRevBooksSold) countRevBooksSold.textContent = totalSold;
+    if (countRevBooksUnsold) countRevBooksUnsold.textContent = totalUnsold;
+
+    // Lọc theo chip (Tất cả / Đã bán / Chưa bán được)
+    let list = [...allRevenueBooksData];
+    if (revBookFilter === 'sold') {
+        list = list.filter(b => b.soldCount > 0);
+    } else if (revBookFilter === 'unsold') {
+        list = list.filter(b => b.soldCount === 0);
+    }
+
+    // Lọc theo từ khóa tìm kiếm
+    if (revBookSearch) {
+        const q = revBookSearch.toLowerCase();
+        list = list.filter(b => 
+            (b.name || '').toLowerCase().includes(q) || 
+            (b.sellerName || '').toLowerCase().includes(q)
+        );
+    }
+
+    // Sắp xếp
+    list.sort((a, b) => {
+        if (revBookSort === 'sold-desc') {
+            return b.soldCount - a.soldCount || b.revenue - a.revenue || a.stock - b.stock;
+        }
+        if (revBookSort === 'unsold-first') {
+            if (a.soldCount === 0 && b.soldCount > 0) return -1;
+            if (a.soldCount > 0 && b.soldCount === 0) return 1;
+            return a.soldCount - b.soldCount || b.stock - a.stock;
+        }
+        if (revBookSort === 'revenue-desc') {
+            return b.revenue - a.revenue || b.soldCount - a.soldCount;
+        }
+        if (revBookSort === 'profit-desc') {
+            return b.profit - a.profit || b.revenue - a.revenue;
+        }
+        if (revBookSort === 'price-desc') {
+            return b.price - a.price;
+        }
+        if (revBookSort === 'stock-desc') {
+            return b.stock - a.stock;
+        }
+        return 0;
+    });
+
+    // Cập nhật summary footer
+    const displayedCount = list.length;
+    const displayedSoldQty = list.reduce((sum, b) => sum + Number(b.soldCount || 0), 0);
+    const displayedProfit = list.reduce((sum, b) => sum + Number(b.profit || 0), 0);
+
+    if (revBooksDisplayedCount) revBooksDisplayedCount.textContent = displayedCount;
+    if (revBooksTotalSoldQty) revBooksTotalSoldQty.textContent = displayedSoldQty;
+    if (revBooksTotalProfit) revBooksTotalProfit.textContent = formatPrice(displayedProfit);
+
+    if (list.length === 0) {
+        topBooksRevenueTableBody.innerHTML = `
+            <tr>
+                <td colspan="10" style="text-align: center; color: #94a3b8; padding: 28px;">
+                    Không tìm thấy cuốn sách nào phù hợp với bộ lọc hiện tại.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    topBooksRevenueTableBody.innerHTML = list.map((b, idx) => {
+        const rank = idx + 1;
+        const rankPill = b.soldCount > 0 
+            ? `<span class="rank-pill ${rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-other'}">${rank}</span>`
+            : `<span style="font-size: 0.8rem; color: #94a3b8; font-weight: 700;">--</span>`;
+
+        let statusBadge = '';
+        if (b.soldCount >= 5) {
+            statusBadge = `<span style="background: #fef3c7; color: #b45309; font-weight: 700; font-size: 0.76rem; padding: 3px 8px; border-radius: 6px; white-space: nowrap;">🔥 Bán chạy</span>`;
+        } else if (b.soldCount > 0) {
+            statusBadge = `<span style="background: #ecfdf5; color: #059669; font-weight: 700; font-size: 0.76rem; padding: 3px 8px; border-radius: 6px; white-space: nowrap;">✓ Đã bán</span>`;
+        } else {
+            statusBadge = `<span style="background: #fef2f2; color: #dc2626; font-weight: 700; font-size: 0.76rem; padding: 3px 8px; border-radius: 6px; white-space: nowrap;">⚠️ Chưa bán</span>`;
+        }
+
+        const soldText = b.soldCount > 0
+            ? `<strong style="color: #059669; font-size: 0.95rem;">${b.soldCount}</strong> cuốn`
+            : `<span style="color: #dc2626; font-weight: 700;">0 cuốn</span>`;
+
+        const profitText = b.soldCount > 0
+            ? `<strong style="color: #047857;">+${formatPrice(b.profit)}</strong>`
+            : `<span style="color: #94a3b8;">0 ₫</span>`;
+
+        const revenueText = b.soldCount > 0
+            ? `<strong style="color: #10b981;">${formatPrice(b.revenue)}</strong>`
+            : `<span style="color: #94a3b8;">0 ₫</span>`;
+
+        return `
+            <tr>
+                <td>${rankPill}</td>
+                <td>
+                    <div class="rev-book-mini">
+                        <img src="${escapeHtml(b.image)}" alt="${escapeHtml(b.name)}" style="width: 32px; height: 42px; object-fit: cover; border-radius: 4px; flex-shrink: 0;">
+                        <div>
+                            <strong style="font-size: 0.9rem; color: #0f172a; display: block; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(b.name)}</strong>
+                            <small style="color: #64748b;">Mã: #${b.id}</small>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <span class="seller-badge-admin" style="font-size: 0.74rem;">🏪 ${escapeHtml(b.sellerName)}</span>
+                </td>
+                <td style="text-align: right;">
+                    <span style="color: #64748b; font-weight: 600;">${formatPrice(b.importPrice)}</span>
+                </td>
+                <td style="text-align: right;">
+                    <strong>${formatPrice(b.price)}</strong>
+                    ${b.onSale && b.discountPercent > 0 ? `<br><small style="color: #dc2626; font-weight: 700;">-${b.discountPercent}%</small>` : ''}
+                </td>
+                <td style="text-align: center;">${soldText}</td>
+                <td style="text-align: center;"><strong>${b.stock}</strong> cuốn</td>
+                <td style="text-align: right;">${revenueText}</td>
+                <td style="text-align: right;">${profitText}</td>
+                <td style="text-align: center;">${statusBadge}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
 // Bảng điều khiển Thống kê Doanh thu toàn sàn (Tab 3 chuyên sâu)
 function renderRevenueDashboard() {
     const revTotalGmv = document.querySelector('#revTotalGmv');
@@ -2191,68 +2342,79 @@ function renderRevenueDashboard() {
         }
     }
 
-    // 3. Top Sách Doanh Thu Cao Nhất trong kỳ
-    const topBooksMap = new Map();
+    // 3. Xây dựng dữ liệu hiệu quả từng cuốn sách trong kỳ lọc (Đã bán & Chưa bán được, Giá vốn & Giá bán, Lãi gộp)
+    const bookSalesMap = new Map();
     completedOrders.forEach(o => {
         (o.items || []).forEach(it => {
-            const bid = String(it.id);
-            const prod = bookByIdMap.get(bid);
-            const sellerInfo = resolveSellerInfo(prod || it);
-            if (!topBooksMap.has(bid)) {
-                topBooksMap.set(bid, {
-                    id: it.id,
-                    name: prod?.name || it.name || `Sách #${bid}`,
-                    image: prod?.image || it.image || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=200&q=80',
-                    sellerName: sellerInfo.name,
-                    soldCount: 0,
-                    revenue: 0
-                });
+            const bid = String(it.productId || it.id);
+            if (!bookSalesMap.has(bid)) {
+                bookSalesMap.set(bid, { soldCount: 0, revenue: 0 });
             }
-            const entry = topBooksMap.get(bid);
+            const entry = bookSalesMap.get(bid);
             const qty = Number(it.quantity || 1);
             const pr = Number(it.price || 0);
             entry.soldCount += qty;
-            entry.revenue += pr * qty;
+            entry.revenue += (pr * qty);
         });
     });
 
-    const topBooks = Array.from(topBooksMap.values())
-        .sort((a, b) => b.revenue - a.revenue || b.soldCount - a.soldCount)
-        .slice(0, 8);
+    const processedBookIds = new Set();
+    allRevenueBooksData = allBooks.map(b => {
+        processedBookIds.add(String(b.id));
+        const sales = bookSalesMap.get(String(b.id)) || { soldCount: 0, revenue: 0 };
+        const sellerInfo = resolveSellerInfo(b);
+        const sellPrice = Number(b.price || 0);
+        const importPrice = b.importPrice !== undefined && b.importPrice !== null
+            ? Number(b.importPrice)
+            : Math.round(sellPrice * 0.65);
+        const cost = sales.soldCount * importPrice;
+        const profit = Math.max(0, sales.revenue - cost);
 
-    if (topBooksRevenueTableBody) {
-        if (topBooks.length === 0) {
-            topBooksRevenueTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">Chưa có dữ liệu sách bán trong kỳ.</td></tr>`;
-        } else {
-            topBooksRevenueTableBody.innerHTML = topBooks.map((b, idx) => {
-                const rank = idx + 1;
-                const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-other';
-                const share = totalItemsRevenue > 0 ? Math.round((b.revenue / totalItemsRevenue) * 100) : 0;
-                return `
-                    <tr>
-                        <td><span class="rank-pill ${rankClass}">${rank}</span></td>
-                        <td>
-                            <div class="rev-book-mini">
-                                <img src="${escapeHtml(b.image)}" alt="${escapeHtml(b.name)}">
-                                <strong>${escapeHtml(b.name)}</strong>
-                            </div>
-                        </td>
-                        <td>${escapeHtml(b.sellerName)}</td>
-                        <td><strong>${b.soldCount}</strong> cuốn</td>
-                        <td><strong style="color: #10b981;">${formatPrice(b.revenue)}</strong></td>
-                        <td>
-                            <div class="share-bar-container">
-                                <div class="share-bar-bg">
-                                    <div class="share-bar-fill" style="width: ${share}%; background: linear-gradient(90deg, #f59e0b, #fbbf24);"></div>
-                                </div>
-                                <span class="share-percent-text" style="color: #d97706;">${share}%</span>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+        return {
+            id: b.id,
+            name: b.name,
+            image: b.image || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=200&q=80',
+            sellerName: sellerInfo.name,
+            importPrice,
+            price: sellPrice,
+            stock: Number(b.stock || 0),
+            soldCount: sales.soldCount,
+            revenue: sales.revenue,
+            profit,
+            onSale: Boolean(b.onSale),
+            discountPercent: Number(b.discountPercent || 0)
+        };
+    });
+
+    // Bổ sung các sách trong đơn hàng lịch sử nếu không còn trong allBooks
+    bookSalesMap.forEach((sales, bid) => {
+        if (!processedBookIds.has(bid)) {
+            const prod = bookByIdMap.get(bid);
+            const sellerInfo = resolveSellerInfo(prod || { id: bid });
+            const sellPrice = Number(prod?.price || 0);
+            const importPrice = prod?.importPrice !== undefined && prod?.importPrice !== null
+                ? Number(prod.importPrice)
+                : Math.round(sellPrice * 0.65);
+            const cost = sales.soldCount * importPrice;
+            const profit = Math.max(0, sales.revenue - cost);
+            allRevenueBooksData.push({
+                id: bid,
+                name: prod?.name || `Sách #${bid} (Đã ngừng kinh doanh)`,
+                image: prod?.image || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=200&q=80',
+                sellerName: sellerInfo.name,
+                importPrice,
+                price: sellPrice,
+                stock: 0,
+                soldCount: sales.soldCount,
+                revenue: sales.revenue,
+                profit,
+                onSale: false,
+                discountPercent: 0
+            });
         }
-    }
+    });
+
+    renderRevenueBooksTable();
 
     // 4. Biểu đồ doanh thu theo ngày
     if (revChartSubtitle) {
@@ -2364,7 +2526,8 @@ function renderRevenueDashboard() {
         },
         sellerList,
         catList,
-        topBooks
+        topBooks: allRevenueBooksData.filter(b => b.soldCount > 0).sort((a, b) => b.soldCount - a.soldCount),
+        allBooksList: allRevenueBooksData
     };
 }
 
@@ -2373,6 +2536,36 @@ function setupRevenueDashboardControls() {
     const dateFromInput = document.querySelector('#revDateFrom');
     const dateToInput = document.querySelector('#revDateTo');
     const btnExportRevenue = document.querySelector('#btnExportRevenueExcel');
+
+    // Bộ lọc Đã bán / Chưa bán được từng cuốn sách
+    const filterChipsWrap = document.querySelector('#revBookFilterChips');
+    if (filterChipsWrap) {
+        filterChipsWrap.addEventListener('click', (e) => {
+            const btn = e.target.closest('.btn-rev-filter');
+            if (!btn) return;
+            revBookFilter = btn.dataset.filter || 'all';
+            filterChipsWrap.querySelectorAll('.btn-rev-filter').forEach(b => b.classList.toggle('active', b === btn));
+            renderRevenueBooksTable();
+        });
+    }
+
+    // Tìm kiếm sách trong bảng hiệu quả doanh thu
+    const searchRevBookInput = document.querySelector('#searchRevBookInput');
+    if (searchRevBookInput) {
+        searchRevBookInput.addEventListener('input', (e) => {
+            revBookSearch = (e.target.value || '').trim();
+            renderRevenueBooksTable();
+        });
+    }
+
+    // Sắp xếp thứ tự sách trong bảng
+    const sortRevBookSelect = document.querySelector('#sortRevBookSelect');
+    if (sortRevBookSelect) {
+        sortRevBookSelect.addEventListener('change', (e) => {
+            revBookSort = e.target.value || 'sold-desc';
+            renderRevenueBooksTable();
+        });
+    }
 
     if (presetsWrap) {
         presetsWrap.addEventListener('click', (e) => {
