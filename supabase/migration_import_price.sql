@@ -8,3 +8,4 @@ ALTER TABLE public.products
 UPDATE public.products
 SET "importPrice" = ROUND(price * 0.65)
 WHERE "importPrice" = 0 OR "importPrice" IS NULL;
+

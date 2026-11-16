@@ -299,16 +299,30 @@ function updateShopStats() {
     );
 
     let myTotalRevenue = 0;
+    let myTotalCost = 0;
     completedOrders.forEach(o => {
         (o.items || []).forEach(it => {
             if (Number(it.sellerId) === Number(currentUser.id)) {
-                myTotalRevenue += (Number(it.price || 0) * Number(it.quantity || 1));
+                const qty = Number(it.quantity || 1);
+                const sellPrice = Number(it.price || 0);
+                myTotalRevenue += (sellPrice * qty);
+
+                // Tìm giá vốn tương ứng trong kho sách của shop
+                const matchedBook = myBooks.find(b => Number(b.id) === Number(it.productId || it.id));
+                const costPrice = matchedBook && matchedBook.importPrice !== undefined 
+                    ? Number(matchedBook.importPrice) 
+                    : Math.round(sellPrice * 0.65);
+                myTotalCost += (costPrice * qty);
             }
         });
     });
 
+    const myProfit = Math.max(0, myTotalRevenue - myTotalCost);
+
     if (statShopTotalRevenue) statShopTotalRevenue.textContent = formatPrice(myTotalRevenue);
-    if (statShopCompletedRevenue) statShopCompletedRevenue.textContent = `Từ ${completedOrders.length} đơn hoàn thành`;
+    if (statShopCompletedRevenue) {
+        statShopCompletedRevenue.innerHTML = `Lãi gộp: <strong style="color: #059669;">+${formatPrice(myProfit)}</strong> (${completedOrders.length} đơn)`;
+    }
 }
 
 // 7. RENDER VÀ LỌC SÁCH GIAN HÀNG

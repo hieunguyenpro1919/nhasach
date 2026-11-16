@@ -21,10 +21,12 @@
 }
 
 /* NÚT ĐIỀU HƯỚNG TRÊN THANH HEADER SELLER (CHỐNG CHÌM MÀU TRÊN NỀN XANH LÁ ĐẬM) */
-.seller-header .btn-store-link {
-  color: #ecfdf5 !important;
-  background: rgba(255, 255, 255, 0.12) !important;
-  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+.seller-header .btn-store-link,
+.seller-header .btn-store-link:visited,
+.seller-header .btn-store-link:link {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
   border-radius: 8px !important;
   padding: 6px 14px !important;
   font-size: 0.88rem !important;
@@ -36,10 +38,11 @@
   transition: all 0.2s ease !important;
 }
 
-.seller-header .btn-store-link:hover {
-  background: rgba(255, 255, 255, 0.25) !important;
+.seller-header .btn-store-link:hover,
+.seller-header .btn-store-link:focus {
+  background: rgba(255, 255, 255, 0.3) !important;
   color: #ffffff !important;
-  border-color: rgba(255, 255, 255, 0.5) !important;
+  border-color: rgba(255, 255, 255, 0.6) !important;
   transform: translateY(-1px) !important;
 }
 

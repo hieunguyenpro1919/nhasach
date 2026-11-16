@@ -401,14 +401,29 @@ function updateStats() {
     if (statPendingOrders) statPendingOrders.textContent = `Chờ/đang giao: ${pendingOrders} đơn`;
     if (ordersTabCount) ordersTabCount.textContent = totalOrders;
 
-    // C. Doanh thu
+    // C. Doanh thu & Lãi gộp thực tế
     const completedOrders = allOrders.filter(o => 
         (o.status || '').toLowerCase().includes('hoàn thành') || 
         (o.status || '').toLowerCase().includes('đã thanh toán')
     );
     const revenue = completedOrders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+    let totalCost = 0;
+    completedOrders.forEach(o => {
+        (o.items || []).forEach(it => {
+            const qty = Number(it.quantity || 1);
+            const sellPrice = Number(it.price || 0);
+            const matchedBook = allBooks.find(b => Number(b.id) === Number(it.productId || it.id));
+            const costPrice = matchedBook && matchedBook.importPrice !== undefined 
+                ? Number(matchedBook.importPrice) 
+                : Math.round(sellPrice * 0.65);
+            totalCost += (costPrice * qty);
+        });
+    });
+    const totalProfit = Math.max(0, revenue - totalCost);
     if (statTotalRevenue) statTotalRevenue.textContent = formatPrice(revenue);
-    if (statCompletedRevenue) statCompletedRevenue.textContent = `Từ ${completedOrders.length} đơn hoàn thành`;
+    if (statCompletedRevenue) {
+        statCompletedRevenue.innerHTML = `Lãi gộp: <strong style="color: #059669;">+${formatPrice(totalProfit)}</strong> (${completedOrders.length} đơn)`;
+    }
 
     // D. Cảnh báo kho
     if (statLowStock) statLowStock.textContent = `${lowStockBooks + outOfStockBooks} sách cần nhập`;
