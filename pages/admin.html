@@ -755,6 +755,13 @@
                         <input type="number" id="bookPrice" min="1000" step="1000" placeholder="ví dụ: 125000" required>
                     </div>
 
+                    <div class="form-group-admin">
+                        <label for="bookStock">Số lượng tồn kho (cuốn) *</label>
+                        <input type="number" id="bookStock" min="0" step="1" placeholder="ví dụ: 50" value="50" required>
+                        <small style="color: #64748b; font-size: 0.8rem;">Nhập số lượng sách thực tế hiện có trong kho.</small>
+                    </div>
+                </div>
+
                 <div class="form-row-2">
                     <div class="form-group-admin">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
@@ -768,12 +775,6 @@
                         <label for="bookDiscountPercent">% Giảm giá (0 - 90%)</label>
                         <input type="number" id="bookDiscountPercent" min="0" max="90" step="5" placeholder="ví dụ: 25" value="0">
                     </div>
-                </div>
-
-                <div class="form-group-admin">
-                    <label for="bookStock">Số lượng tồn kho (cuốn) *</label>
-                    <input type="number" id="bookStock" min="0" step="1" placeholder="ví dụ: 50" value="50" required>
-                    <small style="color: #64748b; font-size: 0.8rem;">Nhập số lượng sách thực tế hiện có trong kho.</small>
                 </div>
 
                 <div class="form-row-2">
@@ -888,8 +889,11 @@
     <div class="modal-overlay" id="orderDetailModal">
         <div class="modal-card" style="max-width: 650px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h3 class="modal-title" style="margin-bottom: 0;">📦 Chi tiết đơn hàng <span id="detailOrderCode" style="color: #4f46e5;"></span></h3>
-                <span id="detailOrderStatusBadge" class="status-badge">● ...</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <h3 class="modal-title" style="margin-bottom: 0;">📦 Chi tiết đơn hàng <span id="detailOrderCode" style="color: #4f46e5;"></span></h3>
+                    <span id="detailOrderStatusBadge" class="status-badge">● ...</span>
+                </div>
+                <button type="button" class="btn-modal-cancel btn-close-x" id="btnCloseOrderDetailModalTop" style="padding: 4px 10px; font-size: 1.2rem; line-height: 1; cursor: pointer; border-radius: 6px;" title="Đóng">&times;</button>
             </div>
 
             <div class="order-detail-info">

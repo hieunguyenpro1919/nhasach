@@ -1081,11 +1081,34 @@ if (ordersTableBody) {
     });
 }
 
-if (btnCloseOrderDetailModal) {
-    btnCloseOrderDetailModal.addEventListener('click', () => {
-        orderDetailModal.classList.remove('active');
+const btnCloseOrderDetailModalTop = document.querySelector('#btnCloseOrderDetailModalTop');
+if (btnCloseOrderDetailModalTop) {
+    btnCloseOrderDetailModalTop.addEventListener('click', () => {
+        orderDetailModal?.classList.remove('active');
     });
 }
+
+if (btnCloseOrderDetailModal) {
+    btnCloseOrderDetailModal.addEventListener('click', () => {
+        orderDetailModal?.classList.remove('active');
+    });
+}
+
+// Bấm ra ngoài vùng modal để đóng
+[bookModal, restockModal, orderDetailModal, categoryModal, userModal, userDetailModal, couponModal].forEach(modal => {
+    modal?.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.classList.remove('active');
+        }
+    });
+});
+
+// Phím Escape để đóng nhanh mọi modal đang mở
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+    }
+});
 
 // Xử lý sự kiện bấm nút Thao tác bên trong Modal Chi tiết Đơn hàng của Admin
 if (orderDetailModal) {
