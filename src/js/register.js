@@ -1,4 +1,5 @@
 import { authService } from '../services/authService.js';
+import { isValidVietnamesePhone, attachNumericPhoneMask } from '../utils/format.js';
 import './themeToggle.js';
 
 const registerForm = document.querySelector('#registerForm');
@@ -49,6 +50,11 @@ function showMessage(text, isSuccess = false) {
     }
 }
 
+const shopPhoneInput = document.querySelector('#shopPhone');
+if (shopPhoneInput) {
+    attachNumericPhoneMask(shopPhoneInput, 10);
+}
+
 registerForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
 
@@ -71,6 +77,12 @@ registerForm?.addEventListener('submit', async (event) => {
 
     if (isSeller && (!shopName || !shopPhone || !shopAddress)) {
         showMessage('Đối tác bán hàng vui lòng nhập đầy đủ Tên gian hàng, Số điện thoại và Địa chỉ kho!');
+        return;
+    }
+
+    if (isSeller && !isValidVietnamesePhone(shopPhone)) {
+        showMessage('⚠️ Số điện thoại liên hệ gian hàng không hợp lệ! Vui lòng nhập đúng 10 chữ số bắt đầu bằng số 0 (ví dụ: 0912345678).');
+        document.querySelector('#shopPhone')?.focus();
         return;
     }
 

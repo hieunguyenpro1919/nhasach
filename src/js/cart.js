@@ -4,7 +4,7 @@ import { productService } from '../services/productService.js';
 import { authService } from '../services/authService.js';
 import { couponService } from '../services/couponService.js';
 import { isSupabaseEnabled } from '../api/supabaseClient.js';
-import { formatPrice } from '../utils/format.js';
+import { formatPrice, isValidVietnamesePhone, attachNumericPhoneMask } from '../utils/format.js';
 import { initChatbot } from './chatWidget.js';
 import { initNotificationBell } from './notificationBell.js';
 import './themeToggle.js';
@@ -76,10 +76,30 @@ function resetQrModalState() {
 
 // 1. Tự động điền thông tin nếu người dùng đã đăng nhập (Đồng bộ từ Hồ sơ cá nhân)
 function setupUserInfo() {
+    if (receiverPhone) {
+        attachNumericPhoneMask(receiverPhone, 10);
+        receiverPhone.addEventListener('input', () => {
+            const phone = receiverPhone.value.trim();
+            const errorEl = document.querySelector('#phoneErrorMsg');
+            if (errorEl) {
+                if (phone.length > 0 && !isValidVietnamesePhone(phone)) {
+                    errorEl.style.display = 'block';
+                    receiverPhone.style.borderColor = '#dc2626';
+                } else {
+                    errorEl.style.display = 'none';
+                    receiverPhone.style.borderColor = '';
+                }
+            }
+        });
+    }
+
     const user = authService.getCurrentUser();
     if (user) {
         if (receiverName && !receiverName.value) receiverName.value = user.name || '';
-        if (receiverPhone && !receiverPhone.value) receiverPhone.value = user.phone || user.shopPhone || '';
+        if (receiverPhone && !receiverPhone.value) {
+            const initialPhone = (user.phone || user.shopPhone || '').replace(/\D/g, '').slice(0, 10);
+            receiverPhone.value = initialPhone;
+        }
         if (receiverAddress && !receiverAddress.value) receiverAddress.value = user.address || user.shopAddress || '';
         if (btnSubmitOrder) btnSubmitOrder.textContent = 'Xác nhận đặt hàng →';
     } else {
@@ -302,6 +322,18 @@ if (checkoutForm) {
         const checkoutCheck = cartService.validateCartForCheckout(currentUser, cart);
         if (!checkoutCheck.allowed) {
             alert(checkoutCheck.message);
+            return;
+        }
+
+        const rawPhone = receiverPhone ? receiverPhone.value.trim() : '';
+        if (!isValidVietnamesePhone(rawPhone)) {
+            alert('⚠️ Số điện thoại nhận hàng không hợp lệ!\n\nVui lòng nhập đúng số điện thoại gồm 10 chữ số và bắt đầu bằng số 0 (ví dụ: 0912345678).');
+            if (receiverPhone) {
+                receiverPhone.focus();
+                receiverPhone.style.borderColor = '#dc2626';
+            }
+            const errorEl = document.querySelector('#phoneErrorMsg');
+            if (errorEl) errorEl.style.display = 'block';
             return;
         }
 

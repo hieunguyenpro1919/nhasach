@@ -4,7 +4,7 @@ import { orderService } from '../services/orderService.js';
 import { authService } from '../services/authService.js';
 import { saleService } from '../services/saleService.js';
 import { couponService } from '../services/couponService.js';
-import { formatPrice, escapeHtml } from '../utils/format.js';
+import { formatPrice, escapeHtml, isValidVietnamesePhone, attachNumericPhoneMask } from '../utils/format.js';
 import { paginate, renderPagination, DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../utils/pagination.js';
 import { excelExportUtil } from '../utils/excelExport.js';
 import { excelImportUtil } from '../utils/excelImport.js';
@@ -203,6 +203,9 @@ const userShopAddressInput = document.querySelector('#userShopAddressInput');
 const userIsLockedInput = document.querySelector('#userIsLockedInput');
 const btnCancelUserModal = document.querySelector('#btnCancelUserModal');
 const btnSaveUser = document.querySelector('#btnSaveUser');
+
+if (userPhoneInput) attachNumericPhoneMask(userPhoneInput, 10);
+if (userShopPhoneInput) attachNumericPhoneMask(userShopPhoneInput, 10);
 
 const userDetailModal = document.querySelector('#userDetailModal');
 const detailUserCode = document.querySelector('#detailUserCode');
@@ -1572,6 +1575,21 @@ if (userForm) {
         if (!name || !email) {
             alert('Vui lòng nhập đầy đủ Họ tên và Email.');
             return;
+        }
+
+        if (phone && !isValidVietnamesePhone(phone)) {
+            alert('⚠️ Số điện thoại không hợp lệ!\nVui lòng nhập đúng 10 chữ số bắt đầu bằng số 0 (ví dụ: 0912345678).');
+            userPhoneInput.focus();
+            return;
+        }
+
+        if (role === 'seller') {
+            const shopPhone = userShopPhoneInput ? userShopPhoneInput.value.trim() : '';
+            if (shopPhone && !isValidVietnamesePhone(shopPhone)) {
+                alert('⚠️ Hotline gian hàng không hợp lệ!\nVui lòng nhập đúng 10 chữ số bắt đầu bằng số 0 (ví dụ: 0912345678).');
+                userShopPhoneInput.focus();
+                return;
+            }
         }
 
         if (!editingId && (!password || password.length < 6)) {

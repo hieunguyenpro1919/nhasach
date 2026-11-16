@@ -4,7 +4,7 @@ import { orderService } from '../services/orderService.js';
 import { authService } from '../services/authService.js';
 import api from '../api/client.js';
 import { storage } from '../utils/storage.js';
-import { formatPrice, escapeHtml } from '../utils/format.js';
+import { formatPrice, escapeHtml, isValidVietnamesePhone, attachNumericPhoneMask } from '../utils/format.js';
 import { paginate, renderPagination, DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../utils/pagination.js';
 import { excelExportUtil } from '../utils/excelExport.js';
 import { excelImportUtil } from '../utils/excelImport.js';
@@ -152,7 +152,10 @@ function renderShopBranding() {
     // Điền vào tab hồ sơ
     if (profileShopName) profileShopName.value = currentUser.shopName || currentUser.name || '';
     if (profileShopEmail) profileShopEmail.value = currentUser.email || '';
-    if (profileShopPhone) profileShopPhone.value = currentUser.shopPhone || '';
+    if (profileShopPhone) {
+        profileShopPhone.value = (currentUser.shopPhone || '').replace(/\D/g, '').slice(0, 10);
+        attachNumericPhoneMask(profileShopPhone, 10);
+    }
     if (profileShopAddress) profileShopAddress.value = currentUser.shopAddress || '';
     if (profileShopBio) profileShopBio.value = currentUser.shopBio || '';
 }
@@ -992,6 +995,12 @@ if (sellerProfileForm) {
 
         if (!updatedShopName || !updatedShopPhone || !updatedShopAddress) {
             alert('Vui lòng nhập đầy đủ tên gian hàng, số điện thoại và địa chỉ kho!');
+            return;
+        }
+
+        if (!isValidVietnamesePhone(updatedShopPhone)) {
+            alert('⚠️ Số điện thoại liên hệ gian hàng không hợp lệ!\nVui lòng nhập đúng 10 chữ số bắt đầu bằng số 0 (ví dụ: 0912345678).');
+            profileShopPhone.focus();
             return;
         }
 

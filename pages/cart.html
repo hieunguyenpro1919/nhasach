@@ -140,8 +140,9 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="receiverPhone">Số điện thoại *</label>
-                            <input type="tel" id="receiverPhone" placeholder="ví dụ: 0912345678" required>
+                            <label for="receiverPhone">Số điện thoại người nhận *</label>
+                            <input type="tel" id="receiverPhone" placeholder="ví dụ: 0912345678 (10 chữ số)" inputmode="numeric" pattern="0[0-9]{9}" maxlength="10" autocomplete="tel" required>
+                            <small id="phoneErrorMsg" style="color: #dc2626; font-size: 0.8rem; display: none; margin-top: 4px; font-weight: 600;">⚠️ Số điện thoại không hợp lệ (cần 10 chữ số, bắt đầu bằng số 0).</small>
                         </div>
 
                         <div class="form-group">

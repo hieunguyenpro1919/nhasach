@@ -2,6 +2,7 @@ import { authService } from '../services/authService.js';
 import { orderService } from '../services/orderService.js';
 import { wishlistService } from '../services/wishlistService.js';
 import { compressAndReadFile } from '../utils/imageUpload.js';
+import { isValidVietnamesePhone, attachNumericPhoneMask } from '../utils/format.js';
 import { initChatbot } from './chatWidget.js';
 import { initNotificationBell } from './notificationBell.js';
 import { initInternalChat } from './internalChat.js';
@@ -153,7 +154,10 @@ function populateUserData(user) {
     // Form Personal Info
     if (inputName) inputName.value = user.name || '';
     if (inputEmail) inputEmail.value = user.email || '';
-    if (inputPhone) inputPhone.value = user.phone || user.shopPhone || '';
+    if (inputPhone) {
+        inputPhone.value = (user.phone || user.shopPhone || '').replace(/\D/g, '').slice(0, 10);
+        attachNumericPhoneMask(inputPhone, 10);
+    }
     if (selectGender) selectGender.value = user.gender || '';
     if (inputDob) inputDob.value = user.dob || '';
     if (inputRoleDisplay) inputRoleDisplay.value = roleInfo.title;
@@ -334,6 +338,12 @@ if (profileForm) {
         if (!name) {
             showAlert('Họ và tên không được để trống!', 'danger');
             inputName.focus();
+            return;
+        }
+
+        if (phone && !isValidVietnamesePhone(phone)) {
+            showAlert('⚠️ Số điện thoại không hợp lệ! Vui lòng nhập đúng 10 chữ số bắt đầu bằng số 0 (ví dụ: 0912345678).', 'danger');
+            inputPhone.focus();
             return;
         }
 
