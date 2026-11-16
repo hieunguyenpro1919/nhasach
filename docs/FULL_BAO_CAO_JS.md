@@ -348,7 +348,20 @@ Hệ thống giải quyết triệt để bằng hàm RPC **`place_order(p_order
 
 ---
 
-## 5. LỜI KẾT VÀ ĐÁNH GIÁ MỨC ĐỘ THỰC TẾ CỦA HỆ THỐNG
+## 5. BẢNG TÀI KHOẢN MẪU & MẬT KHẨU ĐĂNG NHẬP (DÙNG CHO BẢO VỆ / TEST)
+
+| Vai trò (Role) | Email đăng nhập | Mật khẩu mặc định | Ghi chú quyền hạn |
+|:---|:---|:---:|:---|
+| 👑 **Quản trị viên (Admin)** | `admin@bookstore.vn` | **`admin@123`** | Toàn quyền Admin: quản lý doanh thu, duyệt sách, phân quyền user, quản lý Flash Sale & Voucher. |
+| 🏪 **Người bán (Seller 1)** | `nxbtre@bookstore.vn` | **`seller123`** | Gian hàng **NXB Trẻ Official**: đăng/sửa sách, nhập Excel, đóng gói và gán mã vận đơn. |
+| 🏪 **Người bán (Seller 2)** | `nhanam@bookstore.vn` | **`seller123`** | Gian hàng **Nhã Nam Books**: quản lý gian hàng sách văn học. |
+| 🏪 **Người bán (Seller 3)** | `trithuc@bookstore.vn` | **`seller123`** | Gian hàng **Tiệm Sách Tri Thức**: quản lý gian hàng kỹ năng, kinh tế. |
+| 👤 **Khách hàng (Customer)** | `demo@bookstore.vn` | **`123456`** | Tài khoản khách hàng mẫu: mua sách, áp mã voucher, theo dõi vận đơn và đánh giá. |
+| 👤 **Khách hàng (Customer)** | `vana@gmail.com` | **`123456`** | Khách hàng Nguyễn Văn A. |
+
+---
+
+## 6. LỜI KẾT VÀ ĐÁNH GIÁ MỨC ĐỘ THỰC TẾ CỦA HỆ THỐNG
 
 Dự án **Trí Tuệ Book** đã hoàn thành trọn vẹn và khép kín mọi nghiệp vụ của một sàn thương mại điện tử hiện đại.
 
@@ -357,3 +370,4 @@ Dự án **Trí Tuệ Book** đã hoàn thành trọn vẹn và khép kín mọi
 
 ---
 *Báo cáo được hoàn thành và đối soát chính xác theo mã nguồn dự án thực tế — Sinh viên: Nguyễn Văn Hiếu (MSSV: 501250367).*
+
