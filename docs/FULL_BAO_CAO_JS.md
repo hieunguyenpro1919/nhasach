@@ -350,14 +350,17 @@ Hệ thống giải quyết triệt để bằng hàm RPC **`place_order(p_order
 
 ## 5. BẢNG TÀI KHOẢN MẪU & MẬT KHẨU ĐĂNG NHẬP (DÙNG CHO BẢO VỆ / TEST)
 
-| Vai trò (Role) | Email đăng nhập | Mật khẩu mặc định | Ghi chú quyền hạn |
+> **Lưu ý**: Toàn bộ tài khoản trên **Supabase Auth** đã được đồng bộ mật khẩu mặc định thành **`123456`** để tiện cho việc chấm thi và demo nhanh.
+
+| Vai trò (Role) | Email đăng nhập | Mật khẩu chung | Ghi chú quyền hạn |
 |:---|:---|:---:|:---|
-| 👑 **Quản trị viên (Admin)** | `admin@bookstore.vn` | **`admin@123`** | Toàn quyền Admin: quản lý doanh thu, duyệt sách, phân quyền user, quản lý Flash Sale & Voucher. |
-| 🏪 **Người bán (Seller 1)** | `nxbtre@bookstore.vn` | **`seller123`** | Gian hàng **NXB Trẻ Official**: đăng/sửa sách, nhập Excel, đóng gói và gán mã vận đơn. |
-| 🏪 **Người bán (Seller 2)** | `nhanam@bookstore.vn` | **`seller123`** | Gian hàng **Nhã Nam Books**: quản lý gian hàng sách văn học. |
-| 🏪 **Người bán (Seller 3)** | `trithuc@bookstore.vn` | **`seller123`** | Gian hàng **Tiệm Sách Tri Thức**: quản lý gian hàng kỹ năng, kinh tế. |
+| 👑 **Quản trị viên (Admin)** | `admin@bookstore.vn` | **`123456`** | Toàn quyền Admin: quản lý doanh thu, duyệt sách, phân quyền user, quản lý Flash Sale & Voucher. |
+| 🏪 **Người bán (Seller 1)** | `nxbtre@bookstore.vn` | **`123456`** | Gian hàng **NXB Trẻ Official**: đăng/sửa sách, nhập Excel, đóng gói và gán mã vận đơn. |
+| 🏪 **Người bán (Seller 2)** | `nhanam@bookstore.vn` | **`123456`** | Gian hàng **Nhã Nam Books**: quản lý gian hàng sách văn học. |
+| 🏪 **Người bán (Seller 3)** | `trithuc@bookstore.vn` | **`123456`** | Gian hàng **Tiệm Sách Tri Thức**: quản lý gian hàng kỹ năng, kinh tế. |
 | 👤 **Khách hàng (Customer)** | `demo@bookstore.vn` | **`123456`** | Tài khoản khách hàng mẫu: mua sách, áp mã voucher, theo dõi vận đơn và đánh giá. |
 | 👤 **Khách hàng (Customer)** | `vana@gmail.com` | **`123456`** | Khách hàng Nguyễn Văn A. |
+| 👤 **Tài khoản cá nhân** | `hieunguyen.free1919@gmail.com` | **`123456`** | Tài khoản email cá nhân của bạn. |
 
 ---
 
