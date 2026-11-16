@@ -274,13 +274,11 @@ export const botService = {
                     books: mentionedBooks
                 };
             } catch (err) {
-                console.warn('Gọi Gemini API thất bại, chuyển sang chế độ tư vấn dự phòng:', err);
+                console.warn('Gọi Gemini API thất bại, chuyển mượt sang bộ não tư vấn nội bộ:', err);
                 const fallback = this.fallbackConsultation(userMessage, allProducts, false);
                 return {
                     ...fallback,
-                    text: `⚠️ *Google AI phản hồi: "${err.message || 'Không thể kết nối'}"*\n\n` +
-                          `📚 *Em tạm thời chuyển sang gợi ý từ kho sách nội bộ Nhà Sách Trí Tuệ:*\n\n` +
-                          fallback.text
+                    text: fallback.text
                 };
             }
         }
@@ -315,9 +313,7 @@ export const botService = {
             return nameMatch || authorMatch || descMatch || tagMatch || isSkill || isTech || isEcon || isLit || isHeal;
         });
 
-        const keyHintText = showKeyHint 
-            ? `\n\n💡 *Gợi ý: Bạn có thể bấm vào biểu tượng ⚙️ ở góc trên khung chat để nhập Gemini API Key miễn phí.*` 
-            : '';
+        const keyHintText = '';
 
         // Nếu tìm thấy sách phù hợp
         if (matched.length > 0) {
