@@ -4,9 +4,18 @@
  */
 
 // GẮN KEY TẠI ĐÂY NẾU MUỐN DÙNG MẶC ĐỊNH TRONG CODE (hoặc nhập trên giao diện qua nút ⚙️):
-const DEFAULT_GEMINI_KEY = ''; 
+const DEFAULT_GEMINI_KEY = import.meta?.env?.VITE_GEMINI_API_KEY || ''; 
 
 const STORAGE_KEY = 'TRITUE_GEMINI_API_KEY';
+
+// Danh sách các model ưu tiên thử theo thứ tự nhanh nhất (Flash 2.5/2.0/1.5)
+const PREFERRED_MODELS = [
+    { name: 'gemini-2.5-flash', version: 'v1beta' },
+    { name: 'gemini-2.0-flash', version: 'v1beta' },
+    { name: 'gemini-1.5-flash', version: 'v1beta' },
+    { name: 'gemini-1.5-flash-latest', version: 'v1beta' },
+    { name: 'gemini-1.5-pro', version: 'v1beta' }
+];
 
 export const aiService = {
     cachedValidModels: null,
@@ -40,82 +49,59 @@ export const aiService = {
     },
 
     /**
-     * Lấy danh sách model THỰC TẾ mà Google cấp cho API Key này (ListModels API)
-     * Tránh hoàn toàn lỗi 404 do model không tồn tại hoặc sai phiên bản v1/v1beta
+     * Lấy danh sách model để gọi (ưu tiên Flash 2.5/2.0/1.5 trực tiếp để phản hồi dưới 1 giây)
      */
     async fetchAvailableModels(apiKey) {
         if (this.cachedValidModels && this.cachedValidModels.length > 0) {
             return this.cachedValidModels;
         }
 
-        const versions = ['v1beta', 'v1'];
-        for (const ver of versions) {
-            try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/${ver}/models?key=${apiKey}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    const models = (data.models || [])
-                        .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
-                        .map(m => ({
-                            name: m.name.replace(/^models\//, ''),
-                            version: ver,
-                            displayName: m.displayName || m.name
-                        }));
-
-                    if (models.length > 0) {
-                        // Sắp xếp ưu tiên flash lên trước (nhanh và tiết kiệm token)
-                        models.sort((a, b) => {
-                            const aIsFlash = a.name.includes('flash');
-                            const bIsFlash = b.name.includes('flash');
-                            if (aIsFlash && !bIsFlash) return -1;
-                            if (!aIsFlash && bIsFlash) return 1;
-                            return 0;
-                        });
-
-                        this.cachedValidModels = models;
-                        console.log('✓ Google đã cấp các model sau cho key của bạn:', models.map(m => m.name));
-                        return models;
-                    }
-                }
-            } catch (err) {
-                console.warn(`Không lấy được danh sách model qua ${ver}:`, err);
-            }
-        }
-
-        // Danh sách dự phòng nếu không list được
-        return [
-            { name: 'gemini-1.5-flash', version: 'v1beta' },
-            { name: 'gemini-1.5-flash-latest', version: 'v1beta' },
-            { name: 'gemini-2.0-flash', version: 'v1beta' },
-            { name: 'gemini-1.5-pro', version: 'v1beta' },
-            { name: 'gemini-1.5-flash', version: 'v1' }
-        ];
+        // Ưu tiên trả về ngay danh sách model Flash chuẩn quốc tế để tránh việc phải gọi thêm 1 round-trip fetch model gây lag
+        return PREFERRED_MODELS;
     },
 
     /**
-     * Kiểm tra tính hợp lệ của API Key và trả về kết quả chi tiết
+     * Kiểm tra tính hợp lệ của API Key bằng một truy vấn nhẹ test trực tiếp vào model
      */
     async testApiKey(key) {
         const cleanKey = (key || this.getApiKey()).trim();
         if (!cleanKey) return { ok: false, message: 'Chưa nhập API Key' };
 
-        try {
-            const models = await this.fetchAvailableModels(cleanKey);
-            if (models && models.length > 0) {
-                const modelNames = models.slice(0, 3).map(m => m.name).join(', ');
-                return {
-                    ok: true,
-                    message: `Kết nối thành công! Đã nhận diện được các model: ${modelNames}...`,
-                    models: models.map(m => m.name)
-                };
+        // Test trực tiếp endpoint generateContent với prompt nhỏ 'ping'
+        for (const target of PREFERRED_MODELS) {
+            try {
+                const endpoint = `https://generativelanguage.googleapis.com/${target.version}/models/${target.name}:generateContent?key=${cleanKey}`;
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+                        generationConfig: { maxOutputTokens: 5 }
+                    })
+                });
+
+                if (res.ok) {
+                    this.cachedValidModels = [target, ...PREFERRED_MODELS.filter(m => m.name !== target.name)];
+                    return {
+                        ok: true,
+                        message: `Kết nối thành công tới Google Gemini (${target.name})!`
+                    };
+                }
+
+                const errJson = await res.json().catch(() => ({}));
+                const errMsg = errJson?.error?.message || `HTTP ${res.status}`;
+                if (res.status === 400 && errMsg.includes('API_KEY_INVALID')) {
+                    return { ok: false, message: 'Mã API Key không hợp lệ (API_KEY_INVALID). Hãy kiểm tra lại key từ Google AI Studio.' };
+                }
+            } catch (err) {
+                // Thử model kế tiếp
             }
-            return {
-                ok: false,
-                message: 'API Key được chấp nhận nhưng không tìm thấy model nào hỗ trợ generateContent.'
-            };
-        } catch (err) {
-            return { ok: false, message: `Lỗi kết nối mạng hoặc key không hợp lệ: ${err.message}` };
         }
+
+        return {
+            ok: false,
+            message: 'Không thể kết nối tới Gemini API với key này. Vui lòng kiểm tra lại kết nối mạng hoặc đổi key mới.'
+        };
     },
 
     /**
@@ -130,28 +116,18 @@ export const aiService = {
             throw new Error('CHUA_CO_KEY');
         }
 
-        // 1. Chuẩn bị ngữ cảnh danh mục sách (Lightweight RAG Context)
-        const booksSummary = books.slice(0, 30).map(b => {
-            const saleInfo = b.onSale ? ` (Đang SALE -${b.discountPercent || 20}%)` : '';
-            return `- [ID:${b.id}] "${b.name}" | Tác giả: ${b.author || 'Đang cập nhật'} | Thể loại: ${b.tag || 'Sách'} | Giá: ${Number(b.price).toLocaleString('vi-VN')}₫${saleInfo} | Đã bán: ${b.soldCount || 0} | Tóm tắt: ${b.description ? b.description.slice(0, 120) + '...' : ''}`;
+        // 1. Chuẩn bị ngữ cảnh danh mục sách (Lightweight RAG Context - giới hạn 15 cuốn tiêu biểu để prompt gọn nhẹ và AI trả lời siêu tốc)
+        const booksSummary = books.slice(0, 15).map(b => {
+            const saleInfo = b.onSale ? ` (SALE -${b.discountPercent || 20}%)` : '';
+            return `- "${b.name}" (${Number(b.price).toLocaleString('vi-VN')}₫${saleInfo}) - ${b.author || 'Tác giả'}`;
         }).join('\n');
 
         // 2. Xây dựng System Prompt chuyên nghiệp
         const systemPromptText = `
-Bạn là "Trợ lý AI Nhà Sách Trí Tuệ" - một trợ lý ảo thân thiện, hiểu biết, lịch thiệp và am hiểu về sách.
-Nhiệm vụ của bạn:
-1. Tư vấn, gợi ý sách phù hợp nhất cho người đọc dựa trên sở thích, tâm trạng, độ tuổi hoặc ngân sách của họ.
-2. Tóm tắt, giải thích ý nghĩa hoặc nêu bài học từ các cuốn sách.
-3. Giải đáp thắc mắc về sách bằng giọng văn lôi cuốn, truyền cảm hứng đọc sách.
-
-QUY TẮC RẤT QUAN TRỌNG (RAG):
-- Dưới đây là KHO SÁCH HIỆN CÓ CỦA CỬA HÀNG:
+Bạn là "Trợ lý AI Nhà Sách Trí Tuệ". Hãy tư vấn và gợi ý sách thân thiện, ngắn gọn (2-3 đoạn ngắn) cho khách hàng.
+Dưới đây là một số sách tiêu biểu của nhà sách:
 ${booksSummary}
-
-- NGUYÊN TẮC: Khi tư vấn hoặc gợi ý, bạn PHẢI ƯU TIÊN chọn từ KHO SÁCH TRÊN. Nêu rõ Tên sách và Giá tiền. Nếu sách nào đang SALE thì hãy nhắc khách để họ vui.
-- Giữ câu trả lời ngắn gọn (khoảng 2 đến 4 đoạn ngắn), dùng bullet points hoặc in đậm tên sách để dễ nhìn trên khung chat nhỏ.
-- Nếu khách hỏi sách hoàn toàn không có trong danh mục, bạn có thể nói ngắn gọn là nhà sách hiện chưa có bản này nhưng gợi ý một cuốn tương tự có trong kho.
-- Hãy kết thúc bằng một câu hỏi gợi mở hoặc lời chúc ấm áp.
+Ưu tiên gợi ý sách có trong danh mục trên kèm giá tiền. Kết thúc bằng câu hỏi mở hoặc lời chúc.
 `;
 
         // 3. Chuẩn bị nội dung gửi lên API
