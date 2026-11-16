@@ -122,6 +122,7 @@ const bookIdInput = document.querySelector('#bookId');
 const bookNameInput = document.querySelector('#bookName');
 const bookAuthorInput = document.querySelector('#bookAuthor');
 const bookCategoryIdInput = document.querySelector('#bookCategoryId');
+const bookImportPriceInput = document.querySelector('#bookImportPrice');
 const bookPriceInput = document.querySelector('#bookPrice');
 const bookOnSaleInput = document.querySelector('#bookOnSale');
 const bookDiscountPercentInput = document.querySelector('#bookDiscountPercent');
@@ -482,7 +483,10 @@ function renderBooks(books) {
                     </span>
                 </td>
                 <td><span class="admin-cat-pill">${catName}</span></td>
-                <td><strong class="admin-price-text">${formatPrice(book.price)}</strong></td>
+                <td>
+                    <strong class="admin-price-text">${formatPrice(book.price)}</strong>
+                    <div style="font-size: 0.74rem; color: #64748b; margin-top: 2px;">Vốn: ${formatPrice(book.importPrice !== undefined ? book.importPrice : Math.round(Number(book.price || 0) * 0.65))}</div>
+                </td>
                 <td>${stockBadgeHtml}</td>
                 <td style="text-align: right;">
                     <div class="action-btns" style="justify-content: flex-end;">
@@ -608,6 +612,9 @@ if (booksTableBody) {
             bookAuthorInput.value = book.author || '';
             if (bookSellerIdInput) bookSellerIdInput.value = book.sellerId || 101;
             bookCategoryIdInput.value = book.categoryId;
+            if (bookImportPriceInput) {
+                bookImportPriceInput.value = book.importPrice !== undefined ? book.importPrice : Math.round(Number(book.price || 0) * 0.65);
+            }
             bookPriceInput.value = book.price;
             if (bookOnSaleInput) bookOnSaleInput.checked = book.onSale === true;
             if (bookDiscountPercentInput) bookDiscountPercentInput.value = book.discountPercent !== undefined ? book.discountPercent : 0;
@@ -720,15 +727,36 @@ if (bookForm) {
             : new Date().toISOString();
         const isNewFlag = bookIsNewInput ? bookIsNewInput.checked : true;
 
+        const sellPrice = Number(bookPriceInput.value);
+        const importPrice = bookImportPriceInput && bookImportPriceInput.value 
+            ? Number(bookImportPriceInput.value) 
+            : Math.round(sellPrice * 0.65);
+
+        const discountPercent = bookDiscountPercentInput ? Math.min(90, Math.max(0, Number(bookDiscountPercentInput.value) || 0)) : 0;
+        const isOnSale = bookOnSaleInput ? bookOnSaleInput.checked : false;
+        const effectivePrice = isOnSale && discountPercent > 0 ? Math.round(sellPrice * (1 - discountPercent / 100)) : sellPrice;
+
+        if (effectivePrice < importPrice) {
+            const acceptLoss = confirm(`⚠️ Cảnh báo giá: Giá bán sau giảm (${formatPrice(effectivePrice)}) THẤP HƠN giá vốn nhập (${formatPrice(importPrice)}).\nSách sẽ bị bán lỗ. Bạn có chắc chắn muốn lưu mức giá này?`);
+            if (!acceptLoss) {
+                if (btnSaveBook) {
+                    btnSaveBook.disabled = false;
+                    btnSaveBook.textContent = 'Lưu sách';
+                }
+                return;
+            }
+        }
+
         const bookData = {
             name: bookNameInput.value.trim(),
             author: bookAuthorInput.value.trim(),
             categoryId: Number(bookCategoryIdInput.value),
             sellerId: selectedSellerId,
             sellerName: selectedSellerName,
-            price: Number(bookPriceInput.value),
-            onSale: bookOnSaleInput ? bookOnSaleInput.checked : false,
-            discountPercent: bookDiscountPercentInput ? Math.min(90, Math.max(0, Number(bookDiscountPercentInput.value) || 0)) : 0,
+            importPrice: importPrice,
+            price: sellPrice,
+            onSale: isOnSale,
+            discountPercent: discountPercent,
             stock: Number(bookStockInput.value),
             importDate: importDateIso,
             isNew: isNewFlag,

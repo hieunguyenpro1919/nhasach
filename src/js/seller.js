@@ -79,6 +79,7 @@ const sellerBookId = document.querySelector('#sellerBookId');
 const sellerBookName = document.querySelector('#sellerBookName');
 const sellerBookAuthor = document.querySelector('#sellerBookAuthor');
 const sellerBookCategory = document.querySelector('#sellerBookCategory');
+const sellerBookImportPrice = document.querySelector('#sellerBookImportPrice');
 const sellerBookPrice = document.querySelector('#sellerBookPrice');
 const sellerBookStock = document.querySelector('#sellerBookStock');
 const sellerBookDiscount = document.querySelector('#sellerBookDiscount');
@@ -349,6 +350,8 @@ function renderSellerBooks(books) {
 
         const isNewBook = book.isNew === true || (book.importDate && (Date.now() - new Date(book.importDate).getTime()) / (1000 * 60 * 60 * 24) <= 45);
         const importDateFormatted = book.importDate ? new Date(book.importDate).toLocaleDateString('vi-VN') : 'Mới cập nhật';
+        const costPrice = book.importPrice !== undefined ? Number(book.importPrice) : Math.round(Number(book.price || 0) * 0.65);
+        const estProfit = Math.max(0, Number(book.price || 0) - costPrice);
 
         return `
             <tr>
@@ -367,7 +370,10 @@ function renderSellerBooks(books) {
                     </div>
                 </td>
                 <td><span class="admin-cat-pill">${catName}</span></td>
-                <td><strong class="admin-price-text">${formatPrice(book.price)}</strong></td>
+                <td>
+                    <strong class="admin-price-text">${formatPrice(book.price)}</strong>
+                    <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">Vốn: ${formatPrice(costPrice)} &bull; <span style="color: #059669; font-weight: 700;" title="Biên lợi nhuận dự kiến">+${formatPrice(estProfit)}</span></div>
+                </td>
                 <td>${saleBadgeHtml}</td>
                 <td>${stockBadgeHtml}</td>
                 <td><strong>${book.soldCount || 0}</strong> đã bán</td>
@@ -466,7 +472,6 @@ if (sellerBookForm) {
     sellerBookForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const id = sellerBookId.value;
-        const discount = Number(sellerBookDiscount.value) || 0;
 
         const imageValue = sellerImageUploader 
             ? sellerImageUploader.getImageValue() 
@@ -482,11 +487,31 @@ if (sellerBookForm) {
             : new Date().toISOString();
         const isNewFlag = sellerBookIsNew ? sellerBookIsNew.checked : true;
 
+        const discount = Number(sellerBookDiscount?.value) || 0;
+        const sellPrice = Number(sellerBookPrice.value);
+        const importPrice = sellerBookImportPrice && sellerBookImportPrice.value 
+            ? Number(sellerBookImportPrice.value) 
+            : Math.round(sellPrice * 0.65);
+
+        // Kiểm tra giá bán và giá nhập: cảnh báo nếu bán dưới giá vốn
+        const effectivePrice = discount > 0 ? Math.round(sellPrice * (1 - discount / 100)) : sellPrice;
+        if (effectivePrice < importPrice) {
+            const acceptLoss = confirm(`⚠️ Cảnh báo giá: Giá bán sau giảm (${formatPrice(effectivePrice)}) THẤP HƠN giá vốn nhập vào (${formatPrice(importPrice)}).\nGian hàng sẽ bị lỗ. Bạn có chắc chắn muốn lưu mức giá này?`);
+            if (!acceptLoss) {
+                if (btnSubmitSellerBook) {
+                    btnSubmitSellerBook.disabled = false;
+                    btnSubmitSellerBook.textContent = 'Lưu Thay Đổi';
+                }
+                return;
+            }
+        }
+
         const bookPayload = {
             name: sellerBookName.value.trim(),
             author: sellerBookAuthor.value.trim(),
             categoryId: Number(sellerBookCategory.value),
-            price: Number(sellerBookPrice.value),
+            importPrice: importPrice,
+            price: sellPrice,
             stock: Number(sellerBookStock.value),
             discountPercent: discount,
             onSale: discount > 0,
@@ -549,6 +574,9 @@ if (sellerBooksTableBody) {
             sellerBookName.value = book.name;
             sellerBookAuthor.value = book.author || '';
             sellerBookCategory.value = book.categoryId;
+            if (sellerBookImportPrice) {
+                sellerBookImportPrice.value = book.importPrice !== undefined ? book.importPrice : Math.round(Number(book.price || 0) * 0.65);
+            }
             sellerBookPrice.value = book.price;
             sellerBookStock.value = book.stock !== undefined ? book.stock : 50;
             sellerBookDiscount.value = book.discountPercent || 0;

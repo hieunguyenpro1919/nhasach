@@ -743,10 +743,17 @@
                     </div>
 
                     <div class="form-group-admin">
-                        <label for="bookPrice">Giá bán (VNĐ) *</label>
-                        <input type="number" id="bookPrice" min="1000" step="1000" placeholder="ví dụ: 125000" required>
+                        <label for="bookImportPrice">Giá vốn nhập vào (VNĐ) *</label>
+                        <input type="number" id="bookImportPrice" min="0" step="1000" placeholder="ví dụ: 80000" required>
+                        <small style="color: #64748b; font-size: 0.78rem;">Giá nhập từ NXB để tính lãi lỗ.</small>
                     </div>
                 </div>
+
+                <div class="form-row-2">
+                    <div class="form-group-admin">
+                        <label for="bookPrice">Giá bán niêm yết (VNĐ) *</label>
+                        <input type="number" id="bookPrice" min="1000" step="1000" placeholder="ví dụ: 125000" required>
+                    </div>
 
                 <div class="form-row-2">
                     <div class="form-group-admin">

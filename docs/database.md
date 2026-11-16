@@ -235,6 +235,7 @@ Kho sách kinh doanh trên hệ thống (hỗ trợ cả sách hệ thống và 
 | :--- | :--- | :--- | :--- |
 | `id` | `BIGINT` | `PRIMARY KEY` | Mã sản phẩm |
 | `name` | `TEXT` | `NOT NULL` | Tên sách |
+| `importPrice` | `NUMERIC` | `NOT NULL DEFAULT 0` | Giá vốn nhập kho từ NXB (dùng tính lợi nhuận gộp) |
 | `price` | `NUMERIC` | `NOT NULL` | Giá bán niêm yết (VNĐ) |
 | `image` | `TEXT` | `Nullable` | URL ảnh bìa (Storage CDN hoặc asset URL) |
 | `description` | `TEXT` | `Nullable` | Mô tả chi tiết nội dung sách |
